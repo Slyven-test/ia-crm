@@ -26,3 +26,13 @@ for TENANT in "${TENANTS[@]}"; do
   python etl/main_multi.py --tenant "$TENANT"
 done
 echo "\nETL terminé pour tous les tenants"
+# Met à jour l'état de l'ETL avec la date actuelle
+STATE_FILE="${PROJECT_ROOT}/data/etl_state.json"
+mkdir -p "$(dirname "$STATE_FILE")"
+CURRENT_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat >"$STATE_FILE" <<JSON
+{
+  "last_run_at": "$CURRENT_TS",
+  "results": []
+}
+JSON
