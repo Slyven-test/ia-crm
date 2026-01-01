@@ -28,6 +28,18 @@ from ..models import (
     RecoRun,
     RecoItem,
 )
+
+# Poids par scénario pour le calcul du score composite.
+# Ces pondérations peuvent être ajustées en fonction des objectifs
+# marketing : certains scénarios favorisent la popularité, d'autres le prix ou
+# la correspondance de famille.
+SCORING_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "winback": {"popularity": 0.3, "price": 0.3, "family": 0.2, "rfm": 0.2},
+    "rebuy": {"popularity": 0.3, "price": 0.2, "family": 0.4, "rfm": 0.1},
+    "cross_sell": {"popularity": 0.3, "price": 0.3, "family": 0.2, "rfm": 0.2},
+    "upsell": {"popularity": 0.2, "price": 0.4, "family": 0.3, "rfm": 0.1},
+    "nurture": {"popularity": 0.3, "price": 0.3, "family": 0.2, "rfm": 0.2},
+}
 from .scenario_service import ScenarioService
 
 
@@ -108,15 +120,18 @@ def _compute_score(
     client: Client,
     max_price: float,
     max_rfm_score: float,
+    scenario: str,
 ) -> float:
-    """Calcule un score composite pour un produit et un client.
+    """Calcule un score composite pour un produit et un client en fonction du scénario.
 
-    Composantes :
-    * Popularité globale (40 %) : ``global_popularity_score`` normalisé.
-    * Adéquation au prix (30 %) : 1 - |prix TTC - AOV| / max_price.
-    * Correspondance de famille (20 %) : 1 si ``family_crm`` est dans les
-      préférences du client.
-    * Score RFM normalisé du client (10 %).
+    Les composantes du score sont :
+    * Popularité globale du produit (``global_popularity_score``) ;
+    * Adéquation au prix : plus le prix du produit est proche de la moyenne des achats du client, meilleur est le score ;
+    * Correspondance de famille : 1 si la famille CRM du produit appartient aux préférences du client, 0 sinon ;
+    * Score RFM normalisé du client.
+
+    Les pondérations de ces composantes dépendent du scénario (winback, rebuy,
+    cross_sell, upsell, nurture) via la constante ``SCORING_WEIGHTS``.
     """
     popularity = prod.global_popularity_score or 0.0
     aov = client.average_order_value or 0.0
@@ -136,11 +151,12 @@ def _compute_score(
         if prod.family_crm in fams:
             fam_score = 1.0
     rfm_norm = (client.rfm_score or 0.0) / max_rfm_score if max_rfm_score > 0 else 0.0
+    weights = SCORING_WEIGHTS.get(scenario.lower(), SCORING_WEIGHTS.get("nurture"))
     score = (
-        0.4 * popularity
-        + 0.3 * price_score
-        + 0.2 * fam_score
-        + 0.1 * rfm_norm
+        weights.get("popularity", 0.0) * popularity
+        + weights.get("price", 0.0) * price_score
+        + weights.get("family", 0.0) * fam_score
+        + weights.get("rfm", 0.0) * rfm_norm
     )
     return float(score)
 
@@ -184,7 +200,7 @@ def generate_recommendations(db: Session, tenant_id: int, top_n: int = 5) -> Lis
         # Calculer les scores pour chaque candidat
         scored: List[tuple[Product, float]] = []
         for prod in candidates:
-            score = _compute_score(prod, client, max_price, max_rfm)
+            score = _compute_score(prod, client, max_price, max_rfm, scenario)
             scored.append((prod, score))
         # Trier et sélectionner top N
         scored = sorted(scored, key=lambda x: x[1], reverse=True)[:top_n]
@@ -253,7 +269,7 @@ def generate_recommendations_run(db: Session, tenant_id: int, top_n: int = 5) ->
         candidates = _candidate_products(client, bought, products, scenario, max_price)
         scored: List[tuple[Product, float]] = []
         for prod in candidates:
-            score = _compute_score(prod, client, max_price, max_rfm)
+            score = _compute_score(prod, client, max_price, max_rfm, scenario)
             scored.append((prod, score))
         scored = sorted(scored, key=lambda x: x[1], reverse=True)[:top_n]
         for rank, (prod, score) in enumerate(scored, start=1):
