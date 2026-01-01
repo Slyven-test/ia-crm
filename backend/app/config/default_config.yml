@@ -1,0 +1,44 @@
+# Configuration par défaut pour ia-crm
+
+# Poids de scoring par scénario pour le moteur de recommandations. Chaque
+# scénario associe quatre composantes (popularité, prix, famille, rfm)
+# avec des poids qui doivent totaliser 1.0. Ces valeurs peuvent être
+# ajustées via l'API de configuration.
+SCORING_WEIGHTS:
+  winback:
+    popularity: 0.3
+    price: 0.2
+    family: 0.2
+    rfm: 0.3
+  rebuy:
+    popularity: 0.1
+    price: 0.1
+    family: 0.4
+    rfm: 0.4
+  cross_sell:
+    popularity: 0.25
+    price: 0.25
+    family: 0.3
+    rfm: 0.2
+  upsell:
+    popularity: 0.1
+    price: 0.4
+    family: 0.3
+    rfm: 0.2
+  nurture:
+    popularity: 0.25
+    price: 0.2
+    family: 0.2
+    rfm: 0.35
+
+# Seuil de gating pour l'audit. Un audit est considéré comme réussi si le score
+# est supérieur ou égal à cette valeur et s'il n'y a pas d'erreurs.
+AUDIT_THRESHOLD: 80
+
+# Nombre de jours définissant la fenêtre de silence marketing (au-delà
+# de cette durée sans achat, un client est considéré silencieux).
+SILENCE_DAYS: 365
+
+# Nombre de jours au-delà desquels un client est considéré en churn
+# potentiel.
+CHURN_WARNING_DAYS: 180
