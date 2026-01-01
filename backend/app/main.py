@@ -29,6 +29,7 @@ from .routers import (
     export,
     contacts,
     reco_runs,
+    config,
 )
 
 
@@ -68,7 +69,10 @@ def create_app() -> FastAPI:
     app.include_router(contacts.router)
     # Router pour les runs de recommandations
     app.include_router(reco_runs.router)
-    # Router pour les exports de données
+    # Router pour les paramètres de configuration
+    app.include_router(config.router)
+    # Router pour les exports de données (déjà importé au dessus)
+    # (re-déclaré ici pour plus de clarté et pour éviter l'oubli dans la liste)
     app.include_router(export.router)
 
     @app.get("/")
