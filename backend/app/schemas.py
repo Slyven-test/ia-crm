@@ -74,6 +74,8 @@ class ClientBase(BaseModel):
     budget_band: Optional[str] = None
     aroma_profile: Optional[str] = None
     cluster: Optional[str] = None
+    last_contact_date: Optional[dt.datetime] = None
+    email_opt_out: Optional[bool] = False
 
 
 class ClientCreate(ClientBase):
@@ -92,10 +94,25 @@ class ClientRead(ClientBase):
 class ProductBase(BaseModel):
     product_key: str
     name: str
-    family: Optional[str] = None
-    price: Optional[float] = None
+    family_crm: Optional[str] = None
+    sub_family: Optional[str] = None
+    cepage: Optional[str] = None
+    sucrosite_niveau: Optional[str] = None
+    price_ttc: Optional[float] = None
     margin: Optional[float] = None
+    premium_tier: Optional[str] = None
+    price_band: Optional[str] = None
+    aroma_fruit: Optional[float] = None
+    aroma_floral: Optional[float] = None
+    aroma_spice: Optional[float] = None
+    aroma_mineral: Optional[float] = None
+    aroma_acidity: Optional[float] = None
+    aroma_body: Optional[float] = None
+    aroma_tannin: Optional[float] = None
     global_popularity_score: Optional[float] = None
+    season_tags: Optional[str] = None
+    is_active: Optional[bool] = True
+    is_archived: Optional[bool] = False
     description: Optional[str] = None
     tenant_id: int
 
@@ -105,6 +122,25 @@ class ProductCreate(ProductBase):
 
 
 class ProductRead(ProductBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+# --- ProductAlias ---
+
+class ProductAliasBase(BaseModel):
+    label_norm: str
+    product_key: str
+    tenant_id: int
+
+
+class ProductAliasCreate(ProductAliasBase):
+    pass
+
+
+class ProductAliasRead(ProductAliasBase):
     id: int
 
     class Config:
@@ -128,6 +164,115 @@ class SaleCreate(SaleBase):
 
 
 class SaleRead(SaleBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+# --- Order & OrderItem ---
+
+class OrderItemBase(BaseModel):
+    product_id: int
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    total_price: Optional[float] = None
+    tenant_id: int
+
+
+class OrderItemCreate(OrderItemBase):
+    pass
+
+
+class OrderItemRead(OrderItemBase):
+    id: int
+    order_id: int
+
+    class Config:
+        orm_mode = True
+
+
+class OrderBase(BaseModel):
+    client_id: int
+    total_amount: Optional[float] = None
+    created_at: Optional[dt.datetime] = None
+    status: Optional[str] = None
+    tenant_id: int
+
+
+class OrderCreate(OrderBase):
+    items: list[OrderItemCreate]
+
+
+class OrderRead(OrderBase):
+    id: int
+    items: list[OrderItemRead]
+
+    class Config:
+        orm_mode = True
+
+
+# --- ContactEvent ---
+
+class ContactEventBase(BaseModel):
+    client_id: int
+    contact_date: Optional[dt.datetime] = None
+    channel: Optional[str] = None
+    status: Optional[str] = None
+    campaign_id: Optional[int] = None
+    tenant_id: int
+
+
+class ContactEventCreate(ContactEventBase):
+    pass
+
+
+class ContactEventRead(ContactEventBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+# --- RecoRun & RecoItem ---
+
+class RecoRunBase(BaseModel):
+    executed_at: Optional[dt.datetime] = None
+    dataset_version: Optional[str] = None
+    config_hash: Optional[str] = None
+    code_version: Optional[str] = None
+    status: Optional[str] = None
+    tenant_id: int
+
+
+class RecoRunCreate(RecoRunBase):
+    pass
+
+
+class RecoRunRead(RecoRunBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class RecoItemBase(BaseModel):
+    run_id: int
+    client_id: int
+    product_id: int
+    scenario: Optional[str] = None
+    rank: Optional[int] = None
+    score: Optional[float] = None
+    explain_short: Optional[str] = None
+    reasons_json: Optional[str] = None
+    tenant_id: int
+
+
+class RecoItemCreate(RecoItemBase):
+    pass
+
+
+class RecoItemRead(RecoItemBase):
     id: int
 
     class Config:

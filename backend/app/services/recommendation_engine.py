@@ -21,32 +21,34 @@ from typing import List, Dict, Set
 from sqlalchemy.orm import Session
 
 from ..models import Sale, Product, Recommendation, Client
+from .scenario_service import ScenarioService
 
+
+# Obsolete: scenario selection now handled by ScenarioService
 
 def _select_scenario(client: Client) -> str:
-    """Détermine le scénario de recommandation adapté à un client.
+    """Backward compatibility wrapper using ScenarioService.
 
-    Heuristiques :
-    * Si le client n’a jamais acheté (rfm_score == 0) → ``nurture``.
-    * Si aucune commande depuis plus de 180 jours → ``winback``.
-    * Si dernière commande il y a plus de 30 jours → ``rebuy``.
-    * Sinon, si le panier moyen du client est inférieur à la moyenne
-      générale des produits → ``upsell`` pour proposer des produits plus
-      chers. Dans le cas contraire, ``cross_sell``.
+    This helper instantiates a ScenarioService and returns the best
+    scenario for the client. It falls back to simple heuristics if the
+    service is unavailable.
     """
-    now = dt.datetime.utcnow()
-    if client.rfm_score is None or client.rfm_score == 0:
-        return "nurture"
-    if client.last_purchase_date:
-        days = (now - client.last_purchase_date).days
-        if days > 180:
-            return "winback"
-        if days > 30:
-            return "rebuy"
-    # Utiliser la bande de budget pour distinguer upsell vs cross-sell
-    if client.budget_band == "Low":
-        return "upsell"
-    return "cross_sell"
+    try:
+        service = ScenarioService()
+        return service.decide(client).scenario.lower()
+    except Exception:
+        now = dt.datetime.utcnow()
+        if client.rfm_score is None or client.rfm_score == 0:
+            return "nurture"
+        if client.last_purchase_date:
+            days = (now - client.last_purchase_date).days
+            if days > 180:
+                return "winback"
+            if days > 30:
+                return "rebuy"
+        if client.budget_band == "Low":
+            return "upsell"
+        return "cross_sell"
 
 
 def _candidate_products(
@@ -56,35 +58,41 @@ def _candidate_products(
     scenario: str,
     max_price: float,
 ) -> List[Product]:
-    """Génère une liste de produits candidats pour un scénario donné."""
+    """Génère une liste de produits candidats pour un scénario donné.
+
+    Cette version utilise les champs enrichis (family_crm, price_ttc) et
+    tient compte des préférences du client pour la famille afin de
+    filtrer les produits.
+    """
     candidates: List[Product] = []
-    pref_fams = set((client.preferred_families or "").split(",")) if client.preferred_families else set()
+    pref_fams: Set[str] = set()
+    if client.preferred_families:
+        try:
+            import json
+            prefs = json.loads(client.preferred_families)
+            pref_fams = {p.get("family") for p in prefs if p.get("family")}
+        except Exception:
+            # fallback to simple comma‑separated string
+            pref_fams = set((client.preferred_families or "").split(","))
     aov = client.average_order_value or 0.0
     for prod in all_products:
-        if prod.product_key in bought:
+        if prod.product_key in bought or not prod.is_active or prod.is_archived:
             continue
-        # Filtrage selon le scénario
+        fam = prod.family_crm or ""
+        price = prod.price_ttc or 0.0
         if scenario == "rebuy":
-            # Même famille que préférée
-            if prod.family and prod.family in pref_fams:
+            if fam and fam in pref_fams:
                 candidates.append(prod)
         elif scenario == "cross_sell":
-            # Familles différentes
-            if prod.family and (not pref_fams or prod.family not in pref_fams):
+            if fam and (not pref_fams or fam not in pref_fams):
                 candidates.append(prod)
         elif scenario == "upsell":
-            # Même famille et prix supérieur au AOV
-            if prod.family and prod.family in pref_fams and prod.price and prod.price > aov:
+            if fam and fam in pref_fams and price > aov:
                 candidates.append(prod)
-        elif scenario == "winback":
-            # Produits les plus populaires (pas de filtrage de famille)
+        elif scenario in ("winback", "nurture"):
             candidates.append(prod)
-        elif scenario == "nurture":
-            # Proposer des produits populaires (même logique que winback)
-            candidates.append(prod)
-    # Si aucune correspondance (cas de rebuy par exemple), on élargit à tous les produits non achetés
     if not candidates:
-        candidates = [p for p in all_products if p.product_key not in bought]
+        candidates = [p for p in all_products if p.product_key not in bought and p.is_active and not p.is_archived]
     return candidates
 
 
@@ -96,29 +104,31 @@ def _compute_score(
 ) -> float:
     """Calcule un score composite pour un produit et un client.
 
-    Les composantes du score :
-    * Popularité globale (40 %) : ``global_popularity_score``.
-    * Adéquation au prix (30 %) : 1 - |prix - AOV| / max_price.
-    * Correspondance de famille (20 %) : 1 si la famille est dans les préférences du client, sinon 0.
-    * Score RFM normalisé du client (10 %) : ``rfm_score / max_rfm_score``.
+    Composantes :
+    * Popularité globale (40 %) : ``global_popularity_score`` normalisé.
+    * Adéquation au prix (30 %) : 1 - |prix TTC - AOV| / max_price.
+    * Correspondance de famille (20 %) : 1 si ``family_crm`` est dans les
+      préférences du client.
+    * Score RFM normalisé du client (10 %).
     """
-    # Popularité
     popularity = prod.global_popularity_score or 0.0
-    # Prix (si pas de prix, valeur neutre)
-    if prod.price and max_price > 0:
-        price_diff = abs(prod.price - (client.average_order_value or 0.0))
+    aov = client.average_order_value or 0.0
+    price = prod.price_ttc or 0.0
+    if price and max_price > 0:
+        price_diff = abs(price - aov)
         price_score = 1.0 - min(price_diff / max_price, 1.0)
     else:
         price_score = 0.5
-    # Famille
     fam_score = 0.0
-    if prod.family and client.preferred_families:
-        fams = set(client.preferred_families.split(","))
-        if prod.family in fams:
+    if prod.family_crm and client.preferred_families:
+        try:
+            import json
+            fams = {p.get("family") for p in json.loads(client.preferred_families)}
+        except Exception:
+            fams = set(client.preferred_families.split(","))
+        if prod.family_crm in fams:
             fam_score = 1.0
-    # RFM
     rfm_norm = (client.rfm_score or 0.0) / max_rfm_score if max_rfm_score > 0 else 0.0
-    # Poids des composantes
     score = (
         0.4 * popularity
         + 0.3 * price_score
