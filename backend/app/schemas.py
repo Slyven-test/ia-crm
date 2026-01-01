@@ -393,3 +393,34 @@ class AuditLogRead(AuditLogBase):
 
     class Config:
         orm_mode = True
+
+
+# --- ConfigSetting ---
+
+class ConfigSettingBase(BaseModel):
+    key: str
+    value: str
+    description: Optional[str] = None
+
+
+class ConfigSettingCreate(ConfigSettingBase):
+    """Schéma utilisé pour créer un paramètre de configuration."""
+    pass
+
+
+class ConfigSettingUpdate(BaseModel):
+    """Schéma pour mettre à jour un paramètre de configuration existant.
+
+    Tous les champs sont optionnels afin de permettre des mises à jour partielles.
+    """
+
+    value: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ConfigSettingRead(ConfigSettingBase):
+    id: int
+    tenant_id: int
+
+    class Config:
+        orm_mode = True
