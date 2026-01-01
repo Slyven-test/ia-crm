@@ -8,7 +8,7 @@ un attribut ``tenant_id`` qui permet d’isoler logiquement les données.
 from __future__ import annotations
 
 import datetime as dt
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -367,3 +367,28 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog {self.executed_at} score={self.score}>"
+
+
+# --- Configuration settings ---
+
+class ConfigSetting(Base):
+    """
+    Table pour stocker les paramètres de configuration par tenant.
+
+    Chaque entrée est identifiée par une clé et contient une valeur sérialisée
+    (chaîne ou JSON) ainsi qu'une description facultative. La combinaison
+    (tenant_id, key) doit être unique afin qu'un même locataire ne puisse
+    définir deux fois la même clé.
+    """
+
+    __tablename__ = "config_settings"
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uix_tenant_key"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    key = Column(String, nullable=False)
+    value = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<ConfigSetting {self.tenant_id}:{self.key}>"
