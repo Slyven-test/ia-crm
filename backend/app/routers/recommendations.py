@@ -63,3 +63,34 @@ def get_all_recommendations(
         .all()
     )
     return recos
+
+
+@router.post("/approve")
+def approve_recommendations(
+    reco_ids: list[int],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> dict:
+    """Valide manuellement une liste de recommandations.
+
+    Les identifiants de recommandations à approuver doivent être passés
+    dans le corps de la requête sous forme de tableau JSON. Seules les
+    recommandations du tenant courant seront modifiées.
+    """
+    # Sélectionner les recommandations à approuver
+    recos = (
+        db.query(models.Recommendation)
+        .filter(
+            models.Recommendation.tenant_id == current_user.tenant_id,
+            models.Recommendation.id.in_(reco_ids),
+        )
+        .all()
+    )
+    if not recos:
+        raise HTTPException(status_code=404, detail="Aucune recommandation trouvée")
+    # Mettre à jour le champ is_approved
+    for reco in recos:
+        reco.is_approved = True
+        db.add(reco)
+    db.commit()
+    return {"message": f"{len(recos)} recommandations approuvées"}

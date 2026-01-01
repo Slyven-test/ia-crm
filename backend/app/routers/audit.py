@@ -11,6 +11,7 @@ from ..database import get_db
 from ..models import User, AuditLog
 from ..routers.auth import get_current_user
 from ..services import audit_service
+from .. import schemas
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -54,3 +55,24 @@ def latest_audit(
         }
         for log in logs
     ]
+
+
+@router.get("/logs", response_model=list[schemas.AuditLogRead])
+def get_audit_logs(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[schemas.AuditLogRead]:
+    """Retourne les logs d'audit pour le tenant courant.
+
+    Ce point d'entrée est conforme à l'API décrite dans la documentation.
+    On peut spécifier un nombre maximum d'éléments via le paramètre ``limit``.
+    """
+    logs = (
+        db.query(AuditLog)
+        .filter(AuditLog.tenant_id == current_user.tenant_id)
+        .order_by(AuditLog.executed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return logs

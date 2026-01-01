@@ -28,6 +28,64 @@ def list_products(
     )
 
 
+@router.post("/", response_model=schemas.ProductRead, status_code=201)
+def create_product(
+    product_in: schemas.ProductCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> schemas.ProductRead:
+    """Crée un nouveau produit pour le tenant courant.
+
+    Si un produit avec la même clé existe déjà pour ce tenant, renvoie une erreur.
+    """
+    existing = (
+        db.query(Product)
+        .filter(
+            Product.tenant_id == current_user.tenant_id,
+            Product.product_key == product_in.product_key,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Produit déjà existant")
+    product = Product(**product_in.dict(exclude={"tenant_id"}))
+    product.tenant_id = current_user.tenant_id
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.put("/{product_key}", response_model=schemas.ProductRead)
+def update_product(
+    product_key: str,
+    product_update: schemas.ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> schemas.ProductRead:
+    """Met à jour un produit existant.
+
+    Les champs ``product_key`` et ``tenant_id`` ne sont pas modifiables.
+    """
+    product = (
+        db.query(Product)
+        .filter(
+            Product.tenant_id == current_user.tenant_id,
+            Product.product_key == product_key,
+        )
+        .first()
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+    update_data = product_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(product, field, value)
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
 @router.get("/{product_key}", response_model=schemas.ProductRead)
 def get_product(
     product_key: str,

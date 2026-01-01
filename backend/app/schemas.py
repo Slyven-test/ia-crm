@@ -82,6 +82,26 @@ class ClientCreate(ClientBase):
     pass
 
 
+class ClientUpdate(BaseModel):
+    """Schéma pour mettre à jour un client existant.
+
+    Tous les champs sont optionnels afin de permettre des mises à jour partielles.
+    Le champ ``tenant_id`` n'est pas modifiable via cette API.
+    """
+
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    last_contact_date: Optional[dt.datetime] = None
+    email_opt_out: Optional[bool] = None
+    preferred_families: Optional[str] = None
+    budget_band: Optional[str] = None
+    aroma_profile: Optional[str] = None
+    cluster: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
 class ClientRead(ClientBase):
     id: int
 
@@ -119,6 +139,39 @@ class ProductBase(BaseModel):
 
 class ProductCreate(ProductBase):
     pass
+
+
+class ProductUpdate(BaseModel):
+    """Schéma pour mettre à jour un produit existant.
+
+    Permet de modifier partiellement les attributs d'un produit. Le ``tenant_id`` et
+    la ``product_key`` ne sont pas modifiables via cette API.
+    """
+
+    name: Optional[str] = None
+    family_crm: Optional[str] = None
+    sub_family: Optional[str] = None
+    cepage: Optional[str] = None
+    sucrosite_niveau: Optional[str] = None
+    price_ttc: Optional[float] = None
+    margin: Optional[float] = None
+    premium_tier: Optional[str] = None
+    price_band: Optional[str] = None
+    aroma_fruit: Optional[float] = None
+    aroma_floral: Optional[float] = None
+    aroma_spice: Optional[float] = None
+    aroma_mineral: Optional[float] = None
+    aroma_acidity: Optional[float] = None
+    aroma_body: Optional[float] = None
+    aroma_tannin: Optional[float] = None
+    global_popularity_score: Optional[float] = None
+    season_tags: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_archived: Optional[bool] = None
+    description: Optional[str] = None
+
+    class Config:
+        orm_mode = True
 
 
 class ProductRead(ProductBase):
@@ -287,6 +340,7 @@ class RecommendationBase(BaseModel):
     score: float
     scenario: Optional[str] = None
     tenant_id: int
+    is_approved: Optional[bool] = False
 
 
 class RecommendationCreate(RecommendationBase):

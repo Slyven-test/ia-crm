@@ -22,6 +22,9 @@ from .routers import (
     audit,
     clients,
     products,
+    sales,
+    profiles,
+    system,
 )
 
 
@@ -50,6 +53,9 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(clients.router)
     app.include_router(products.router)
+    app.include_router(sales.router)
+    app.include_router(profiles.router)
+    app.include_router(system.router)
 
     @app.get("/")
     def read_root():

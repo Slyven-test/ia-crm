@@ -80,3 +80,41 @@ def get_current_user(
 def read_current_user(current_user: models.User = Depends(get_current_user)) -> schemas.UserRead:
     """Retourne l’utilisateur courant."""
     return current_user
+
+
+@router.post("/logout")
+def logout(
+    token: str = Depends(oauth2_scheme),
+) -> dict:
+    """Déconnecte l'utilisateur courant.
+
+    Cette implémentation ne stocke pas les tokens expirés. Pour les
+    besoins de l'application, le client doit simplement supprimer son
+    token JWT côté navigateur. Un message de confirmation est renvoyé.
+    """
+    # Dans une version future, on pourrait stocker les tokens révoqués.
+    return {"message": "Déconnecté"}
+
+
+@router.post("/refresh")
+def refresh_access_token(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Génère un nouveau token d'accès en prolongeant la session.
+
+    Le token actuel est décodé pour récupérer l'identifiant utilisateur,
+    puis un nouveau token est émis avec la même identité. Si le token
+    est invalide ou expiré, une erreur est renvoyée.
+    """
+    try:
+        payload = auth_service.decode_token(token)
+        user_id: int = int(payload.get("sub"))
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token invalide")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    new_data = {"sub": str(user.id), "tenant_id": user.tenant_id}
+    new_token = auth_service.create_access_token(data=new_data)
+    return {"access_token": new_token, "token_type": "bearer"}

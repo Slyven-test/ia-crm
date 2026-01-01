@@ -182,6 +182,8 @@ class Recommendation(Base):
     scenario = Column(String, nullable=True)  # winback, cross-sell, etc.
     created_at = Column(DateTime, default=dt.datetime.utcnow)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    # Indicateur de validation manuelle de la recommandation
+    is_approved = Column(Boolean, default=False)
 
     def __repr__(self) -> str:
         return f"<Reco {self.client_code}->{self.product_key} ({self.score:.2f})>"
