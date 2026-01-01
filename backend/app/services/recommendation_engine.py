@@ -20,7 +20,14 @@ from typing import List, Dict, Set
 
 from sqlalchemy.orm import Session
 
-from ..models import Sale, Product, Recommendation, Client
+from ..models import (
+    Sale,
+    Product,
+    Recommendation,
+    Client,
+    RecoRun,
+    RecoItem,
+)
 from .scenario_service import ScenarioService
 
 
@@ -193,3 +200,86 @@ def generate_recommendations(db: Session, tenant_id: int, top_n: int = 5) -> Lis
             all_recos.append(reco)
     db.commit()
     return all_recos
+
+
+def generate_recommendations_run(db: Session, tenant_id: int, top_n: int = 5) -> dict:
+    """Génère des recommandations et enregistre un run détaillé (RecoRun/RecoItem).
+
+    Cette fonction crée un enregistrement ``RecoRun`` pour tracer l'exécution,
+    calcule les recommandations pour chaque client du tenant, puis enregistre
+    chaque suggestion dans ``RecoItem`` avec le rang et le score. Les
+    recommandations agrégées dans la table ``Recommendation`` sont également
+    créées afin de conserver une API de lecture simple.
+
+    Args:
+        db: session SQLAlchemy.
+        tenant_id: identifiant du locataire.
+        top_n: nombre maximum de produits à recommander par client.
+
+    Returns:
+        Un dictionnaire contenant l'identifiant du run et le nombre total
+        d'éléments générés.
+    """
+    # Créer un enregistrement de run
+    run = RecoRun(
+        executed_at=dt.datetime.utcnow(),
+        dataset_version=None,
+        config_hash=None,
+        code_version=None,
+        status="running",
+        tenant_id=tenant_id,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    # Effacer les anciennes recommandations agrégées et items
+    db.query(Recommendation).filter(Recommendation.tenant_id == tenant_id).delete()
+    db.query(RecoItem).filter(RecoItem.tenant_id == tenant_id).delete()
+    db.commit()
+    # Préparer les données (réutilise la logique existante)
+    products: List[Product] = db.query(Product).filter(Product.tenant_id == tenant_id).all()
+    clients: List[Client] = db.query(Client).filter(Client.tenant_id == tenant_id).all()
+    sales = db.query(Sale).filter(Sale.tenant_id == tenant_id).all()
+    client_bought: Dict[str, Set[str]] = {}
+    for s in sales:
+        client_bought.setdefault(s.client_code, set()).add(s.product_key)
+    max_price = max((p.price_ttc or 0.0) for p in products) if products else 0.0
+    max_rfm = max((c.rfm_score or 0) for c in clients) if clients else 0.0
+    # Générer les recommandations et enregistrer les items
+    total_items = 0
+    for client in clients:
+        bought = client_bought.get(client.client_code, set())
+        scenario = _select_scenario(client)
+        candidates = _candidate_products(client, bought, products, scenario, max_price)
+        scored: List[tuple[Product, float]] = []
+        for prod in candidates:
+            score = _compute_score(prod, client, max_price, max_rfm)
+            scored.append((prod, score))
+        scored = sorted(scored, key=lambda x: x[1], reverse=True)[:top_n]
+        for rank, (prod, score) in enumerate(scored, start=1):
+            # Enregistrer le reco item
+            reco_item = RecoItem(
+                run_id=run.id,
+                client_id=client.id,
+                product_id=prod.id,
+                scenario=scenario,
+                rank=rank,
+                score=score,
+                explain_short=None,
+                reasons_json=None,
+                tenant_id=tenant_id,
+            )
+            db.add(reco_item)
+            # Enregistrer également dans la table Recommendation (agrégée)
+            reco = Recommendation(
+                client_code=client.client_code,
+                product_key=prod.product_key,
+                score=score,
+                scenario=scenario,
+                tenant_id=tenant_id,
+            )
+            db.add(reco)
+            total_items += 1
+    run.status = "completed"
+    db.commit()
+    return {"run_id": run.id, "total_items": total_items}
