@@ -23,11 +23,17 @@ def run_audit(
 ) -> dict:
     """Exécute un audit de la qualité des données pour le tenant courant."""
     log = audit_service.run_audit(db, current_user.tenant_id)
+    # Ajouter un indicateur "passed" pour indiquer si le score satisfait le seuil de gating
+    # et renvoyer également la liste détaillée des messages d'audit. Le score est considéré
+    # comme acceptable s'il n'y a aucune erreur et si la note est >= 80, conformément aux
+    # règles d'audit. Les détails sont découpés par ligne pour faciliter l'affichage côté client.
     return {
         "message": "Audit exécuté",
         "errors": log.errors,
         "warnings": log.warnings,
         "score": log.score,
+        "passed": (log.errors == 0 and log.score >= 80),
+        "details": log.details.split("\n") if log.details else [],
     }
 
 
