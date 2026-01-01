@@ -27,6 +27,7 @@ from .routers import (
     system,
     etl,
     export,
+    contacts,
 )
 
 
@@ -62,6 +63,8 @@ def create_app() -> FastAPI:
     app.include_router(etl.router)
     # Router pour l'export de données
     app.include_router(export.router)
+    # Router pour les événements de contact
+    app.include_router(contacts.router)
     # Router pour les exports de données
     app.include_router(export.router)
 
