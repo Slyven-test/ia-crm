@@ -26,6 +26,7 @@ from .routers import (
     profiles,
     system,
     etl,
+    export,
 )
 
 
@@ -59,6 +60,10 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     # Router pour les opérations ETL
     app.include_router(etl.router)
+    # Router pour l'export de données
+    app.include_router(export.router)
+    # Router pour les exports de données
+    app.include_router(export.router)
 
     @app.get("/")
     def read_root():
