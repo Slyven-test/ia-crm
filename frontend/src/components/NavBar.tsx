@@ -1,0 +1,34 @@
+import React from 'react';
+import { NavLink } from 'react-router-dom';
+
+interface Props {
+  onLogout: () => void;
+}
+
+export default function NavBar({ onLogout }: Props) {
+  const linkStyle: React.CSSProperties = {
+    marginRight: '1rem',
+    textDecoration: 'none',
+    color: '#007bff',
+  };
+  const activeStyle: React.CSSProperties = {
+    fontWeight: 'bold',
+    color: '#0056b3',
+  };
+  return (
+    <nav style={{ padding: '1rem', borderBottom: '1px solid #ddd' }}>
+      <NavLink to="/" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)} end>
+        Tableau de bord
+      </NavLink>
+      <NavLink to="/recommendations" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Recommandations
+      </NavLink>
+      <NavLink to="/campaigns" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Campagnes
+      </NavLink>
+      <button onClick={onLogout} style={{ float: 'right' }}>
+        Déconnexion
+      </button>
+    </nav>
+  );
+}

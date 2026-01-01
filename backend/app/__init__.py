@@ -1,0 +1,1 @@
+"""Package init pour le backend FastAPI."""
