@@ -98,9 +98,37 @@ def run_etl_multi_tenant(tenants: List[str], isolate_schema: bool = False) -> Li
 
 
 if __name__ == "__main__":
-    # Exemple d'exécution pour deux tenants :
-    tenants_to_run = ["ruhlmann", "valentinr"]
-    all_results = run_etl_multi_tenant(tenants_to_run, isolate_schema=False)
+    """Point d’entrée CLI pour exécuter le pipeline ETL.
+
+    Ce script accepte les arguments suivants :
+
+    * ``--tenant TENANT`` (peut être répété) : identifiant(s) des tenants à
+      traiter. S'il n'est pas fourni, les tenants ``ruhlmann`` et
+      ``valentinr`` sont utilisés à titre d'exemple.
+    * ``--isolate-schema`` : active le chargement dans des schémas ou
+      tables séparés.
+
+    Exemple :
+        python etl/main_multi.py --tenant ruhlmann --tenant valentinr --isolate-schema
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run multi-tenant ETL")
+    parser.add_argument(
+        "--tenant",
+        dest="tenants",
+        action="append",
+        help="Tenant identifier (can be repeated)",
+    )
+    parser.add_argument(
+        "--isolate-schema",
+        dest="isolate",
+        action="store_true",
+        help="Load data into separate schemas/tables per tenant",
+    )
+    args = parser.parse_args()
+    tenants_to_run = args.tenants if args.tenants else ["ruhlmann", "valentinr"]
+    all_results = run_etl_multi_tenant(tenants_to_run, isolate_schema=args.isolate)
     # Afficher un résumé final
     for res in all_results:
         status = "✅" if res["success"] else "❌"

@@ -11,11 +11,21 @@ générer des recommandations et envoyer des campagnes d’e‑mails.
   nom d’utilisateur et mot de passe. Le token JWT est stocké dans le
   navigateur.
 - **Tableau de bord** : page d’accueil simple.
-- **Recommandations** : possibilité de générer des recommandations pour
-  l’ensemble des clients du tenant et d’afficher les recommandations pour
-  un client particulier.
-- **Campagnes** : création d’une campagne (nom, date de planification,
+* **Clients** : liste des clients avec leurs scores RFM, segment,
+  panier moyen, budget et familles préférées. Un bouton permet de
+  recalculer les scores RFM directement depuis l’interface.
+* **Produits** : liste des produits avec leur famille, prix et score de
+  popularité global.
+* **Recommandations** : possibilité de générer des recommandations pour
+  l’ensemble des clients du tenant, de rafraîchir la liste et de
+  consulter les recommandations pour un client particulier.
+* **Campagnes** : création d’une campagne (nom, date de planification,
   identifiant de template) et déclenchement de l’envoi à tous les clients.
+* **Analytics** : tableau de bord affichant des KPIs (clients actifs,
+  revenu total, panier moyen, churn, nombre de recommandations) et la
+  tendance des ventes par mois.
+* **Audit** : exécution d’un audit de qualité des données et
+  consultation des derniers rapports (erreurs, avertissements, score).
 
 ## Démarrer le frontend
 

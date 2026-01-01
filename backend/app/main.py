@@ -12,7 +12,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
-from .routers import auth, tenants, recommendations, campaigns
+from .routers import (
+    auth,
+    tenants,
+    recommendations,
+    campaigns,
+    rfm,
+    analytics,
+    audit,
+    clients,
+    products,
+)
 
 
 def create_app() -> FastAPI:
@@ -35,6 +45,11 @@ def create_app() -> FastAPI:
     app.include_router(tenants.router)
     app.include_router(recommendations.router)
     app.include_router(campaigns.router)
+    app.include_router(rfm.router)
+    app.include_router(analytics.router)
+    app.include_router(audit.router)
+    app.include_router(clients.router)
+    app.include_router(products.router)
 
     @app.get("/")
     def read_root():

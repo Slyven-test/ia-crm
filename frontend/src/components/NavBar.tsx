@@ -20,11 +20,23 @@ export default function NavBar({ onLogout }: Props) {
       <NavLink to="/" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)} end>
         Tableau de bord
       </NavLink>
+      <NavLink to="/clients" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Clients
+      </NavLink>
+      <NavLink to="/products" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Produits
+      </NavLink>
       <NavLink to="/recommendations" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
         Recommandations
       </NavLink>
       <NavLink to="/campaigns" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
         Campagnes
+      </NavLink>
+      <NavLink to="/analytics" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Analytics
+      </NavLink>
+      <NavLink to="/audit" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Audit
       </NavLink>
       <button onClick={onLogout} style={{ float: 'right' }}>
         Déconnexion

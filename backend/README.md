@@ -13,14 +13,31 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 - **Authentification JWT** : les utilisateurs s’inscrivent avec un
   identifiant et un mot de passe, et obtiennent un jeton d’accès via
   `/auth/token`. L’accès aux endpoints protégés nécessite ce jeton.
-- **Moteur de recommandations** : un service de base génère des
-  recommandations en fonction des produits les plus populaires chez un
-  tenant. Ce moteur est conçu pour être étendu (RFM, co‑achats, règles
-  métier, etc.).
-- **Intégration Brevo (stub)** : un service d’envoi d’e‑mails simulateur
-  permet de tester l’envoi de campagnes sans dépendance externe. Pour
-  utiliser Brevo en production, décommentez les appels API et renseignez
-  `BREVO_API_KEY` dans `.env`.
+- **Analyse RFM et segmentation** : un service calcule automatiquement
+  les composantes Recency, Frequency et Monetary pour chaque client,
+  assigne un segment (Champions, Loyal, At Risk, etc.) et met à jour
+  leurs profils (panier moyen, budget, préférences de familles). Ces
+  données servent de base aux moteurs de recommandations et aux
+  dashboards.
+- **Préférences et popularité** : la plateforme identifie les familles de
+  produits préférées de chaque client et calcule un score de popularité
+  global pour chaque produit en fonction de son historique de ventes.
+- **Moteur de recommandations avancé** : plusieurs scénarios sont
+  implémentés (nurture, winback, rebuy, cross‑sell, upsell). Les
+  candidats sont sélectionnés en fonction des préférences du client,
+  de son budget, de la popularité des produits et de son score RFM.
+- **Analytics et dashboard** : des endpoints fournissent des KPI (nombre
+  total de clients, clients actifs, revenu total, panier moyen,
+  distribution des segments RFM, tendance des ventes) afin de piloter
+  l’activité.
+- **Audit de qualité** : un service d’audit vérifie la fraîcheur des
+  données, la complétude des e‑mails, la présence de doublons récents
+  et la diversité des achats. Un score est attribué et consigné dans un
+  journal.
+- **Campagnes e‑mail** : un module de campagnes permet de créer des
+  campagnes, de sélectionner les destinataires à partir des
+  recommandations générées et d’envoyer les messages. L’intégration
+  avec Brevo est actuellement simulée via un stub.
 - **Séparation claire des responsabilités** : les modèles SQLAlchemy
   représentent les entités en base, les schémas Pydantic valident les
   données en entrée/sortie, et les services encapsulent la logique métier.

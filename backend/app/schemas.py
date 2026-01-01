@@ -60,6 +60,20 @@ class ClientBase(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     tenant_id: int
+    # Champs calculés optionnels (exposés uniquement en lecture)
+    last_purchase_date: Optional[dt.datetime] = None
+    total_spent: Optional[float] = None
+    total_orders: Optional[int] = None
+    average_order_value: Optional[float] = None
+    recency: Optional[float] = None
+    frequency: Optional[float] = None
+    monetary: Optional[float] = None
+    rfm_score: Optional[int] = None
+    rfm_segment: Optional[str] = None
+    preferred_families: Optional[str] = None
+    budget_band: Optional[str] = None
+    aroma_profile: Optional[str] = None
+    cluster: Optional[str] = None
 
 
 class ClientCreate(ClientBase):
@@ -78,6 +92,10 @@ class ClientRead(ClientBase):
 class ProductBase(BaseModel):
     product_key: str
     name: str
+    family: Optional[str] = None
+    price: Optional[float] = None
+    margin: Optional[float] = None
+    global_popularity_score: Optional[float] = None
     description: Optional[str] = None
     tenant_id: int
 
@@ -155,6 +173,24 @@ class CampaignCreate(CampaignBase):
 class CampaignRead(CampaignBase):
     id: int
     created_at: dt.datetime
+
+    class Config:
+        orm_mode = True
+
+
+# --- AuditLog ---
+
+class AuditLogBase(BaseModel):
+    executed_at: dt.datetime
+    errors: int
+    warnings: int
+    score: float
+    details: Optional[str] = None
+    tenant_id: int
+
+
+class AuditLogRead(AuditLogBase):
+    id: int
 
     class Config:
         orm_mode = True
