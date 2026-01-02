@@ -60,6 +60,9 @@ export default function NavBar({ onLogout }: Props) {
       <NavLink to="/rfm" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
         RFM
       </NavLink>
+      <NavLink to="/aliases" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Alias
+      </NavLink>
       <button onClick={onLogout} style={{ float: 'right' }}>
         Déconnexion
       </button>
