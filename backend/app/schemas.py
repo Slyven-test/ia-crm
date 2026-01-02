@@ -441,3 +441,35 @@ class ConfigSettingRead(ConfigSettingBase):
 
     class Config:
         orm_mode = True
+
+
+# ------------------ Aliases ------------------
+
+class ProductAliasBase(BaseModel):
+    """Base model pour les alias produits."""
+
+    label_norm: str
+    product_key: str
+
+
+class ProductAliasCreate(ProductAliasBase):
+    """Schéma pour créer un nouvel alias de produit."""
+
+    pass
+
+
+class ProductAliasUpdate(BaseModel):
+    """Schéma pour mettre à jour un alias de produit."""
+
+    label_norm: Optional[str] = None
+    product_key: Optional[str] = None
+
+
+class ProductAliasRead(ProductAliasBase):
+    """Schéma de lecture pour un alias de produit."""
+
+    id: int
+    tenant_id: int
+
+    class Config:
+        orm_mode = True
