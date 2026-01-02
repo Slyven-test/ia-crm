@@ -82,16 +82,50 @@ def send_campaign(
         subject = f"Nouvelle recommandation pour {reco.client_code}"
         html_content = (
             f"<p>Nous vous recommandons le produit {reco.product_key} "
-            f"(score {reco.score:.2f}).</p>"
+            f"(score {reco.score:.2f}, scénario {reco.scenario or '-'}).</p>"
         )
+        # Envoyer l'e-mail et créer un événement de contact en passant la session,
+        # le tenant, le code client et l'identifiant de campagne. Le service Brevo
+        # enregistre également le statut initial (delivered).
         brevo_service.send_email(
             to=email_to,
             subject=subject,
             html_content=html_content,
             cc=None,
+            db=db,
+            tenant_id=current_user.tenant_id,
+            client_code=reco.client_code,
+            campaign_id=campaign_id,
+            channel="email",
+            status="delivered",
         )
         sent += 1
     # Mettre à jour le statut de la campagne
     campaign.status = "sent"
     db.commit()
     return {"message": f"Campagne {campaign_id} envoyée", "count": sent}
+
+
+@router.get("/{campaign_id}/stats")
+def get_campaign_stats(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+) -> dict:
+    """Retourne des statistiques pour une campagne.
+
+    Les statistiques sont calculées à partir des événements de contact en base
+    (sent, open, click, bounce, unsubscribe). Si une intégration Brevo
+    complète est configurée, cet endpoint pourrait être étendu pour appeler
+    l'API officielle et récupérer des métriques avancées.
+    """
+    # Vérifier que la campagne existe pour ce tenant
+    campaign = (
+        db.query(models.Campaign)
+        .filter(models.Campaign.id == campaign_id, models.Campaign.tenant_id == current_user.tenant_id)
+        .first()
+    )
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campagne introuvable")
+    stats = brevo_service.get_campaign_stats(db, current_user.tenant_id, campaign_id)
+    return stats
