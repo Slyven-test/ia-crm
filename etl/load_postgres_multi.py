@@ -30,12 +30,15 @@ dans des tables séparées (voir argument ``isolate_schema``).
 
 from __future__ import annotations
 
-import pandas as pd
 import logging
+import os
+import re
+import unicodedata
 from pathlib import Path
-from datetime import datetime
+
+import pandas as pd
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .config import DATABASE_URL, get_tenant_paths
 
@@ -71,6 +74,19 @@ def _ensure_schema(engine, schema_name: str | None) -> None:
     safe_schema = schema_name.replace('"', "")
     with engine.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe_schema}"'))
+
+
+def _normalize_label(label: str) -> str:
+    label = label.strip().lower()
+    label = "".join(ch for ch in unicodedata.normalize("NFD", label) if unicodedata.category(ch) != "Mn")
+    label = re.sub(r"[^a-z0-9\s]", " ", label)
+    label = re.sub(r"\s+", " ", label).strip()
+    return label
+
+
+def _get_engine():
+    db_url = os.getenv("DATABASE_URL", DATABASE_URL)
+    return create_engine(db_url)
 
 
 def load_table_with_tenant(
@@ -130,6 +146,49 @@ def load_table_with_tenant(
 
         # Ajouter la colonne tenant
         df = _add_tenant_column(df, tenant_id)
+
+        resolved_aliases = 0
+        unknown_labels: dict[str, int] = {}
+        if table_name == "sales":
+            if "product_key" not in df.columns:
+                df["product_key"] = None
+            # Resolve via alias if product_label present
+            engine = _get_engine()
+            alias_map: dict[str, str] = {}
+            with engine.connect() as conn:
+                result = conn.execute(
+                    text(
+                        "SELECT label_norm, product_key FROM product_alias WHERE tenant_id=:tenant_id"
+                    ),
+                    {"tenant_id": int(tenant_id)},
+                )
+                alias_map = {row[0]: row[1] for row in result}
+                if not alias_map:
+                    prod_rows = conn.execute(
+                        text("SELECT name, product_key FROM products WHERE tenant_id=:tenant_id"),
+                        {"tenant_id": int(tenant_id)},
+                    )
+                    alias_map = {_normalize_label(row[0]): row[1] for row in prod_rows}
+
+            if "product_label" in df.columns:
+                mapped_keys = []
+                for _, row in df.iterrows():
+                    key = row.get("product_key")
+                    if pd.isna(key) or not str(key).strip():
+                        label_raw = str(row.get("product_label", ""))
+                        norm = _normalize_label(label_raw)
+                        mapped = alias_map.get(norm)
+                        if mapped:
+                            mapped_keys.append(mapped)
+                            resolved_aliases += 1
+                        else:
+                            mapped_keys.append(key)
+                            unknown_labels[norm] = unknown_labels.get(norm, 0) + 1
+                    else:
+                        mapped_keys.append(key)
+                df["product_key"] = mapped_keys
+                df = df.drop(columns=["product_label"])
+
         final_rows = len(df)
 
         # Préparer le nom de table cible
@@ -137,7 +196,7 @@ def load_table_with_tenant(
         table_target = f"{table_name}_{tenant_id}" if isolate_schema else table_name
 
         # Connexion PostgreSQL ou SQLite
-        engine = create_engine(DATABASE_URL)
+        engine = _get_engine()
         schema_for_sql = None if _is_sqlite(engine) else schema_name
 
         # Vérifier la connexion
@@ -176,6 +235,8 @@ def load_table_with_tenant(
             "rows_loaded": total_loaded,
             "tenant_id": tenant_id,
             "status": "OK",
+            "resolved_aliases": resolved_aliases,
+            "unknown_labels": unknown_labels,
         }
 
     except IntegrityError as e:
@@ -283,11 +344,20 @@ def verify_load(results: dict) -> dict:
     total_success = sum(1 for r in results.values() if r.get("success", False))
     total_failed = sum(1 for r in results.values() if not r.get("success", True))
     total_rows = sum(r.get("rows_loaded", 0) for r in results.values())
+    total_resolved = sum(r.get("resolved_aliases", 0) for r in results.values())
+    unknown_labels: dict[str, int] = {}
+    for r in results.values():
+        for label, count in r.get("unknown_labels", {}).items():
+            unknown_labels[label] = unknown_labels.get(label, 0) + count
 
     logger.info(f"\n📊 Statistiques:")
     logger.info(f"   Tables réussies: {total_success}")
     logger.info(f"   Tables échouées: {total_failed}")
     logger.info(f"   Total lignes chargées: {total_rows}")
+    if total_resolved:
+        logger.info(f"   Alias résolus: {total_resolved}")
+    if unknown_labels:
+        logger.warning(f"   Labels produits inconnus: {unknown_labels}")
 
     for table_name, result in results.items():
         if result.get("success", False):
@@ -300,4 +370,6 @@ def verify_load(results: dict) -> dict:
         "total_success": total_success,
         "total_failed": total_failed,
         "total_rows": total_rows,
+        "resolved_aliases": total_resolved,
+        "unknown_labels": unknown_labels,
     }
