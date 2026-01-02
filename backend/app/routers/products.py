@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import User, Product
+from ..models import User, Product, Sale
 from ..routers.auth import get_current_user
 from .. import schemas
 
@@ -101,3 +101,38 @@ def get_product(
     if not prod:
         raise HTTPException(status_code=404, detail="Produit introuvable")
     return prod
+
+
+@router.delete("/{product_key}", status_code=204)
+def delete_product(
+    product_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Supprime un produit pour le tenant courant.
+
+    Cette action est irréversible et échouera si le produit n'existe
+    pas ou s'il est référencé par des ventes. Une vérification simple
+    est effectuée avant la suppression.
+    """
+    product = (
+        db.query(Product)
+        .filter(Product.tenant_id == current_user.tenant_id, Product.product_key == product_key)
+        .first()
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+    # Vérifier qu'aucune vente ne référence ce produit
+    sale_exists = (
+        db.query(Sale.id)
+        .filter(Sale.tenant_id == current_user.tenant_id, Sale.product_key == product_key)
+        .first()
+    )
+    if sale_exists:
+        raise HTTPException(
+            status_code=400,
+            detail="Le produit est lié à des ventes et ne peut pas être supprimé",
+        )
+    db.delete(product)
+    db.commit()
+    return None

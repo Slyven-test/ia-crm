@@ -94,3 +94,55 @@ def create_sale(
     db.commit()
     db.refresh(sale)
     return sale
+
+
+@router.put("/{sale_id}", response_model=schemas.SaleRead)
+def update_sale(
+    sale_id: int,
+    sale_update: schemas.SaleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> schemas.SaleRead:
+    """Met à jour une vente existante.
+
+    Seuls les champs spécifiés dans le corps de la requête seront
+    modifiés. Le ``tenant_id`` et l'identifiant de la vente ne sont
+    jamais changés.
+    """
+    sale = (
+        db.query(Sale)
+        .filter(Sale.tenant_id == current_user.tenant_id, Sale.id == sale_id)
+        .first()
+    )
+    if not sale:
+        raise HTTPException(status_code=404, detail="Vente introuvable")
+    update_data = sale_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(sale, field, value)
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+    return sale
+
+
+@router.delete("/{sale_id}", status_code=204)
+def delete_sale(
+    sale_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Supprime une vente pour le tenant courant.
+
+    La suppression est irréversible. Si la vente n'existe pas, une
+    erreur 404 est renvoyée.
+    """
+    sale = (
+        db.query(Sale)
+        .filter(Sale.tenant_id == current_user.tenant_id, Sale.id == sale_id)
+        .first()
+    )
+    if not sale:
+        raise HTTPException(status_code=404, detail="Vente introuvable")
+    db.delete(sale)
+    db.commit()
+    return None
