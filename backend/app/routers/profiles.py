@@ -77,5 +77,7 @@ def recalculate_profiles(
     # Calculer les préférences clients (familles, budget)
     preference_service.compute_client_preferences(db, tenant_id)
     # Calculer les profils aromatiques
-    aroma_service.compute_client_aroma_profiles(db, tenant_id)
+    # Recalculer les profils aromatiques pour tous les clients
+    aroma_svc = aroma_service.AromaService(db)
+    aroma_svc.compute_client_aroma_profiles(tenant_id)
     return {"message": "Profils recalculés"}
