@@ -65,8 +65,13 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 3. Lancez le serveur en développement :
 
    ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   # Assurez-vous que le dossier racine (qui contient `etl/`) est sur le PYTHONPATH
+   PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
+
+   En mode Docker, `docker-compose up --build` utilise désormais le contexte racine et
+   définit automatiquement `PYTHONPATH=/app:/app/etl` afin de rendre le module `etl`
+   disponible pour les routes correspondantes.
 
 ## Points d’extension
 
