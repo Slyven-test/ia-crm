@@ -31,6 +31,7 @@ from .routers import (
     reco_runs,
     config,
     clusters,
+    aliases,
 )
 
 
@@ -78,6 +79,9 @@ def create_app() -> FastAPI:
 
     # Router pour les clusters
     app.include_router(clusters.router)
+
+    # Router pour les alias produits
+    app.include_router(aliases.router)
 
     @app.get("/")
     def read_root():
