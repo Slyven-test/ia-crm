@@ -35,13 +35,13 @@ def send_email(
     channel: str = "email",
     status: str = "delivered",
 ) -> None:
-    """Envoie un e‑mail via Brevo (stub) et enregistre un événement de contact.
+    """Envoie un e‑mail via Brevo et enregistre un événement de contact.
 
-    Dans cette version simplifiée, l'envoi se résume à l'enregistrement d'un
-    message dans les logs. Si une session de base de données et un tenant
-    sont fournis, un ``ContactEvent`` est créé pour tracer l'envoi. En
-    production, l'appel à l'API Brevo doit être implémenté et le statut mis
-    à jour en fonction des retours (open, click, unsubscribe, etc.).
+    Si une clé API Brevo (``BREVO_API_KEY``) est définie dans l'environnement,
+    la requête est envoyée à l'API officielle via HTTPS. Sinon, l'envoi est
+    simulé en écrivant un message dans les logs. Dans tous les cas, si une
+    session de base de données et un ``tenant_id`` sont fournis, un
+    ``ContactEvent`` est créé pour tracer l'envoi.
 
     Args:
         to: adresse du destinataire.
@@ -55,10 +55,44 @@ def send_email(
         channel: canal utilisé (par défaut "email").
         status: statut de l'événement (par défaut "delivered").
     """
-    # Enregistrement dans les logs (stub)
-    logger.info(
-        f"[BREVO STUB] Envoi d’un e‑mail à {to} (CC: {cc}) – Sujet: {subject}\nContenu:\n{html_content}"
-    )
+    api_key = os.getenv("BREVO_API_KEY")
+    sender_email = os.getenv("BREVO_SENDER_EMAIL")
+    sender_name = os.getenv("BREVO_SENDER_NAME", "ia-crm")
+    # Si une API key est définie, tenter l'envoi réel
+    if api_key and sender_email:
+        try:
+            import requests
+
+            url = "https://api.brevo.com/v3/smtp/email"
+            headers = {
+                "api-key": api_key,
+                "accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            payload: Dict[str, any] = {
+                "sender": {"name": sender_name, "email": sender_email},
+                "to": [
+                    {"email": to}
+                ],
+                "subject": subject,
+                "htmlContent": html_content,
+            }
+            if cc:
+                payload["cc"] = [{"email": addr} for addr in cc]
+            # Envoyer la requête
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            response.raise_for_status()
+            logger.info(
+                f"[BREVO] Email envoyé à {to} – sujet: {subject} (status {response.status_code})"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Erreur lors de l'envoi du mail via Brevo : {exc}")
+    else:
+        # Mode stub : pas d'API key, on log uniquement
+        logger.info(
+            f"[BREVO STUB] Envoi d’un e‑mail à {to} (CC: {cc}) – Sujet: {subject}\nContenu:\n{html_content}"
+        )
+
     # Création d'un événement de contact si la session et les informations sont fournies
     if db is not None and tenant_id is not None and client_code:
         try:
@@ -83,9 +117,46 @@ def send_email(
         except Exception as exc:
             logger.error(f"Erreur lors de la création du ContactEvent : {exc}")
 
-    # Exemple d’intégration réelle (commentée) :
-    # from brevo_client import BrevoClient
-    # api_key = os.getenv("BREVO_API_KEY")
-    # client = BrevoClient(api_key)
-    # response = client.send_email(to=to, subject=subject, html_content=html_content, cc=cc)
-    # return response
+
+def get_campaign_stats(
+    db: "Session", tenant_id: int, campaign_id: int
+) -> Dict[str, int]:
+    """Retourne des statistiques simples pour une campagne.
+
+    Les statistiques sont calculées à partir des événements de contact enregistrés
+    en base : nombre total d'envois, d'ouvertures, de clics, de rebonds et de
+    désinscriptions. Si aucune clé API Brevo n'est configurée, cette fonction
+    se contente de compter les événements locaux.
+
+    Args:
+        db: session SQLAlchemy.
+        tenant_id: identifiant du tenant.
+        campaign_id: identifiant de la campagne.
+
+    Returns:
+        Un dictionnaire avec les clés ``sent``, ``open``, ``click``, ``bounce`` et
+        ``unsubscribe``.
+    """
+    from ..models import ContactEvent  # import local pour éviter les cycles
+
+    stats = {"sent": 0, "open": 0, "click": 0, "bounce": 0, "unsubscribe": 0}
+    events = (
+        db.query(ContactEvent)
+        .filter(
+            ContactEvent.tenant_id == tenant_id,
+            ContactEvent.campaign_id == campaign_id,
+        )
+        .all()
+    )
+    for ev in events:
+        if ev.status == "delivered":
+            stats["sent"] += 1
+        elif ev.status == "open":
+            stats["open"] += 1
+        elif ev.status == "click":
+            stats["click"] += 1
+        elif ev.status == "bounce":
+            stats["bounce"] += 1
+        elif ev.status == "unsubscribe":
+            stats["unsubscribe"] += 1
+    return stats
