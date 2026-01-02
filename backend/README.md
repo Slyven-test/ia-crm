@@ -49,6 +49,8 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
    ```bash
    cd backend
    pip install -r requirements.txt
+   # Pour exécuter la suite de tests Python, installez aussi les dépendances de dev
+   pip install -r requirements-dev.txt
    ```
 
 2. Configurez les variables d’environnement :
