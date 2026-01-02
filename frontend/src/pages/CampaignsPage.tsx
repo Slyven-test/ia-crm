@@ -9,7 +9,7 @@ export default function CampaignsPage() {
   const [campaignIdStats, setCampaignIdStats] = useState('');
   const [stats, setStats] = useState<any | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 

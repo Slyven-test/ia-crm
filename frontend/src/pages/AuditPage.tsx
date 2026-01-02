@@ -10,7 +10,7 @@ interface AuditLog {
 }
 
 export default function AuditPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [running, setRunning] = useState<boolean>(false);

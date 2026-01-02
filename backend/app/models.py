@@ -195,17 +195,25 @@ class ProductAlias(Base):
     """
     Mapping entre un label de produit brut et la clé ``product_key``.
 
-    Lors de l'ingestion, on normalise le label (minuscules, accents,
-    espaces) et on recherche la correspondance dans cette table. Si
-    aucune correspondance n'est trouvée, une erreur d'ingestion est
-    déclenchée et une entrée doit être créée via l'interface.
+    Les labels sont normalisés (minuscules, accents/ponctuation retirés).
+    Un alias est propre à un tenant et peut provenir de différentes
+    sources (ingestion automatique, saisie manuelle).
     """
 
     __tablename__ = "product_alias"
     id = Column(Integer, primary_key=True, index=True)
-    label_norm = Column(String, unique=True, index=True)
+    label_raw = Column(String, nullable=True)
+    label_norm = Column(String, index=True)
     product_key = Column(String, ForeignKey("products.product_key"), nullable=False)
+    confidence = Column(Float, default=1.0)
+    source = Column(String, default="manual")
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "label_norm", name="uq_product_alias_label_tenant"),
+    )
 
     def __repr__(self) -> str:
         return f"<Alias {self.label_norm}->{self.product_key}>"

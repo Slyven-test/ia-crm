@@ -181,25 +181,6 @@ class ProductRead(ProductBase):
         orm_mode = True
 
 
-# --- ProductAlias ---
-
-class ProductAliasBase(BaseModel):
-    label_norm: str
-    product_key: str
-    tenant_id: int
-
-
-class ProductAliasCreate(ProductAliasBase):
-    pass
-
-
-class ProductAliasRead(ProductAliasBase):
-    id: int
-
-    class Config:
-        orm_mode = True
-
-
 # --- Sale ---
 
 class SaleBase(BaseModel):
@@ -450,12 +431,16 @@ class ProductAliasBase(BaseModel):
 
     label_norm: str
     product_key: str
+    tenant_id: Optional[int] = None
+    label_raw: Optional[str] = None
+    confidence: Optional[float] = 1.0
+    source: Optional[str] = "manual"
 
 
 class ProductAliasCreate(ProductAliasBase):
     """Schéma pour créer un nouvel alias de produit."""
 
-    pass
+    tenant_id: Optional[int] = None
 
 
 class ProductAliasUpdate(BaseModel):
@@ -463,6 +448,9 @@ class ProductAliasUpdate(BaseModel):
 
     label_norm: Optional[str] = None
     product_key: Optional[str] = None
+    label_raw: Optional[str] = None
+    confidence: Optional[float] = None
+    source: Optional[str] = None
 
 
 class ProductAliasRead(ProductAliasBase):
@@ -470,6 +458,8 @@ class ProductAliasRead(ProductAliasBase):
 
     id: int
     tenant_id: int
+    created_at: Optional[dt.datetime] = None
+    updated_at: Optional[dt.datetime] = None
 
     class Config:
         orm_mode = True
