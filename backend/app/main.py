@@ -30,6 +30,7 @@ from .routers import (
     contacts,
     reco_runs,
     config,
+    clusters,
 )
 
 
@@ -74,6 +75,9 @@ def create_app() -> FastAPI:
     # Router pour les exports de données (déjà importé au dessus)
     # (re-déclaré ici pour plus de clarté et pour éviter l'oubli dans la liste)
     app.include_router(export.router)
+
+    # Router pour les clusters
+    app.include_router(clusters.router)
 
     @app.get("/")
     def read_root():
