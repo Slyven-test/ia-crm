@@ -50,6 +50,13 @@ export default function NavBar({ onLogout }: Props) {
       <NavLink to="/config" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
         Paramètres
       </NavLink>
+
+      <NavLink to="/clusters" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Segmentation
+      </NavLink>
+      <NavLink to="/review" style={({ isActive }) => (isActive ? { ...linkStyle, ...activeStyle } : linkStyle)}>
+        Revue
+      </NavLink>
       <button onClick={onLogout} style={{ float: 'right' }}>
         Déconnexion
       </button>
