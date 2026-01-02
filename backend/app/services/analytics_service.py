@@ -112,3 +112,84 @@ def get_sales_trend(db: Session, tenant_id: int, period: str = "month") -> List[
     # Trier par période
     sorted_keys = sorted(trend.keys())
     return [{"period": k, "revenue": trend[k]} for k in sorted_keys]
+
+
+def get_outcomes_overview(db: Session, tenant_id: int) -> Dict[str, Any]:
+    """Retourne des indicateurs d'efficacité marketing.
+
+    Cette fonction agrège les événements marketing et les données de ventes
+    pour calculer des taux d'ouverture, de clics et de conversions.
+
+    - ``emails_sent`` : nombre total de messages envoyés (statut "delivered").
+    - ``open_rate`` : ratio des événements d'ouverture sur les messages envoyés.
+    - ``click_rate`` : ratio des clics sur les messages envoyés.
+    - ``unsubscribe_rate`` : ratio des désabonnements sur les messages envoyés.
+    - ``conversion_rate`` : proportion des recommandations qui ont conduit à
+      un achat (nombre de recommandations converties ÷ nombre total de
+      recommandations).
+
+    Si aucun message n'a été envoyé, les taux d'ouverture, de clics et de
+    désabonnement sont nuls. Si aucune recommandation n'a été générée, le
+    taux de conversion est nul.
+    """
+    # Compter les événements marketing
+    from ..models import ContactEvent
+
+    delivered_count = (
+        db.query(ContactEvent)
+        .filter(ContactEvent.tenant_id == tenant_id, ContactEvent.status == "delivered")
+        .count()
+    )
+    opened_count = (
+        db.query(ContactEvent)
+        .filter(ContactEvent.tenant_id == tenant_id, ContactEvent.status == "open")
+        .count()
+    )
+    clicked_count = (
+        db.query(ContactEvent)
+        .filter(ContactEvent.tenant_id == tenant_id, ContactEvent.status == "click")
+        .count()
+    )
+    unsub_count = (
+        db.query(ContactEvent)
+        .filter(ContactEvent.tenant_id == tenant_id, ContactEvent.status == "unsubscribe")
+        .count()
+    )
+
+    # Calculer les taux d'ouverture, de clic et de désabonnement
+    open_rate = opened_count / delivered_count if delivered_count > 0 else 0.0
+    click_rate = clicked_count / delivered_count if delivered_count > 0 else 0.0
+    unsubscribe_rate = unsub_count / delivered_count if delivered_count > 0 else 0.0
+
+    # Calculer le taux de conversion: proportion des recommandations qui ont
+    # conduit à un achat. On considère qu'une recommandation est convertie si
+    # le client a acheté le produit recommandé (peu importe la date).
+    total_recommendations = (
+        db.query(Recommendation).filter(Recommendation.tenant_id == tenant_id).count()
+    )
+    if total_recommendations > 0:
+        # Nombre de recommandations converties (achats correspondants)
+        conversions = (
+            db.query(Recommendation.id)
+            .join(Client, Recommendation.client_id == Client.id)
+            .join(
+                Sale,
+                (Sale.client_id == Client.id)
+                & (Sale.product_key == Recommendation.product_key)
+                & (Sale.tenant_id == tenant_id),
+            )
+            .filter(Recommendation.tenant_id == tenant_id)
+            .distinct()
+            .count()
+        )
+        conversion_rate = conversions / total_recommendations
+    else:
+        conversion_rate = 0.0
+
+    return {
+        "emails_sent": delivered_count,
+        "open_rate": open_rate,
+        "click_rate": click_rate,
+        "unsubscribe_rate": unsubscribe_rate,
+        "conversion_rate": conversion_rate,
+    }
