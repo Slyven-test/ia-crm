@@ -61,6 +61,18 @@ def _add_tenant_column(df: pd.DataFrame, tenant_id: str) -> pd.DataFrame:
     return df
 
 
+def _is_sqlite(engine) -> bool:
+    return engine.dialect.name == "sqlite"
+
+
+def _ensure_schema(engine, schema_name: str | None) -> None:
+    if not schema_name or _is_sqlite(engine):
+        return
+    safe_schema = schema_name.replace('"', "")
+    with engine.begin() as conn:
+        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{safe_schema}"'))
+
+
 def load_table_with_tenant(
     table_name: str,
     csv_file: str,
@@ -74,7 +86,7 @@ def load_table_with_tenant(
         table_name: nom de la table cible (ex. ``ventes_lignes``).
         csv_file: chemin du fichier CURATED CSV.
         tenant_id: identifiant du locataire à injecter dans les données.
-        schema: schéma PostgreSQL (défaut ``etl``).
+    schema: schéma PostgreSQL (défaut ``etl``). Ignoré en mode SQLite.
         isolate_schema: si ``True``, le schéma ou la table est suffixé par
             ``tenant_id`` afin d'isoler physiquement les données.
 
@@ -124,14 +136,21 @@ def load_table_with_tenant(
         schema_name = f"{schema}_{tenant_id}" if isolate_schema else schema
         table_target = f"{table_name}_{tenant_id}" if isolate_schema else table_name
 
-        # Connexion PostgreSQL
+        # Connexion PostgreSQL ou SQLite
         engine = create_engine(DATABASE_URL)
+        schema_for_sql = None if _is_sqlite(engine) else schema_name
 
         # Vérifier la connexion
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT version();"))
-            db_version = result.fetchone()[0]
+            if _is_sqlite(engine):
+                result = conn.execute(text("select sqlite_version();"))
+                db_version = result.fetchone()[0]
+            else:
+                result = conn.execute(text("SELECT version();"))
+                db_version = result.fetchone()[0]
             logger.info(f"   ✓ Connecté: {db_version.split(',')[0]}")
+
+        _ensure_schema(engine, schema_for_sql)
 
         # Chargement
         chunksize = 1000
@@ -139,7 +158,7 @@ def load_table_with_tenant(
             df.to_sql(
                 table_target,
                 conn,
-                schema=schema_name,
+                schema=schema_for_sql,
                 if_exists="append",
                 index=False,
                 chunksize=chunksize,

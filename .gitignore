@@ -8,6 +8,9 @@ node_modules/
 # Builds et artefacts
 frontend/dist/
 backend/local.db
+data/
+*.db
+**/*.egg-info/
 
 # Sources JS générés
 frontend/src/**/*.js

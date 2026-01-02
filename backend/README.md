@@ -48,9 +48,7 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 
    ```bash
    cd backend
-   pip install -r requirements.txt
-   # Pour exécuter la suite de tests Python, installez aussi les dépendances de dev
-   pip install -r requirements-dev.txt
+   pip install -r requirements-dev.txt  # inclut l'installation editable de l'ETL
    ```
 
 2. Configurez les variables d’environnement :
@@ -58,6 +56,8 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
    - `DATABASE_URL`: URL de connexion PostgreSQL (par ex. `postgresql+psycopg2://user:pass@localhost:5432/ia_crm`)
    - `JWT_SECRET_KEY`: clé secrète utilisée pour signer les tokens JWT
    - `BREVO_API_KEY` (optionnel) : clé API pour l’intégration Brevo
+   - `ENABLE_DEMO_DATA`: si vrai, crée un tenant + utilisateur `demo/demo` et quelques données
+   - `DATA_DIR`: répertoire racine pour l’ETL (défaut : `./data`)
 
    Vous pouvez créer un fichier `.env` à la racine du projet et utiliser
    `python-dotenv` pour charger ces variables automatiquement.
@@ -66,12 +66,16 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 
    ```bash
    # Assurez-vous que le dossier racine (qui contient `etl/`) est sur le PYTHONPATH
-   PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   ENABLE_DEMO_DATA=1 PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
    En mode Docker, `docker-compose up --build` utilise désormais le contexte racine et
    définit automatiquement `PYTHONPATH=/app:/app/etl` afin de rendre le module `etl`
    disponible pour les routes correspondantes.
+
+4. Données de démo : exécutez `python -m etl.demo` (avec `DATABASE_URL` pointant vers
+   votre base) pour charger un petit jeu d'essai. Un utilisateur `demo`/`demo` est créé
+   si `ENABLE_DEMO_DATA` est activé.
 
 ## Points d’extension
 
