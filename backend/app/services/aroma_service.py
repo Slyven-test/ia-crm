@@ -110,3 +110,37 @@ class AromaService:
             level = "Medium"
 
         return AromaProfile(axes=axes_norm, top_axes=top_axes, confidence=confidence, level=level)
+
+    def compute_client_aroma_profiles(self, tenant_id: int) -> int:
+        """Calcule et stocke les profils aromatiques pour tous les clients d'un tenant.
+
+        Cette méthode itère sur l'ensemble des clients du tenant donné,
+        calcule leur profil aromatique (axes, top_axes, niveau de confiance)
+        via ``compute_for_client`` et sérialise le résultat dans le champ
+        ``Client.aroma_profile`` (au format JSON). Elle retourne le nombre
+        de clients mis à jour.
+
+        Args:
+            tenant_id: identifiant du locataire
+
+        Returns:
+            nombre de clients pour lesquels le profil a été calculé
+        """
+        import json
+
+        count = 0
+        # Récupérer les clients du tenant
+        clients = self.db.query(Client).filter(Client.tenant_id == tenant_id).all()
+        for client in clients:
+            profile = self.compute_for_client(client.id)
+            # Sérialiser le profil complet (axes, top_axes, confidence, level)
+            client.aroma_profile = json.dumps({
+                "axes": profile.axes,
+                "top_axes": profile.top_axes,
+                "confidence": profile.confidence,
+                "level": profile.level,
+            })
+            count += 1
+        # Commit en bloc pour toutes les mises à jour
+        self.db.commit()
+        return count
