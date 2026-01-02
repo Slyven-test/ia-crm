@@ -223,6 +223,23 @@ class SaleRead(SaleBase):
         orm_mode = True
 
 
+# --- SaleUpdate ---
+
+class SaleUpdate(BaseModel):
+    """Schéma pour la mise à jour partielle d'une vente.
+
+    Tous les champs sont optionnels pour permettre des mises à jour
+    partielles. Le ``tenant_id`` et l'identifiant de vente ne sont pas
+    modifiables via cette API.
+    """
+    document_id: Optional[str] = None
+    product_key: Optional[str] = None
+    client_code: Optional[str] = None
+    quantity: Optional[float] = None
+    amount: Optional[float] = None
+    sale_date: Optional[dt.datetime] = None
+
+
 # --- Order & OrderItem ---
 
 class OrderItemBase(BaseModel):
