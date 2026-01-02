@@ -41,3 +41,16 @@ def sales_trend(
         return analytics_service.get_sales_trend(db, current_user.tenant_id, period=period)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/outcomes")
+def outcomes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Retourne les métriques d'efficacité marketing (ouvertures, clics, conversions).
+
+    Les taux renvoyés sont compris entre 0 et 1. Si aucun e‑mail
+    n'a été envoyé ou aucune recommandation générée, les valeurs sont nulles.
+    """
+    return analytics_service.get_outcomes_overview(db, current_user.tenant_id)
