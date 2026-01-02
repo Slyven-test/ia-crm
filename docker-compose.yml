@@ -26,6 +26,51 @@ services:
     ports:
       - "8000:8000"
 
+  # Redis broker for Celery tasks and result backend. This container exposes
+  # port 6379 for local development. In production you may want to restrict
+  # network access.
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # Celery worker that processes asynchronous tasks defined in app/tasks.py.
+  celery_worker:
+    build: ./backend
+    restart: always
+    depends_on:
+      - backend
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ia_crm
+      JWT_SECRET_KEY: supersecretchangeme
+      BREVO_API_KEY: ""
+      # Celery broker and backend point to the redis container.
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: celery -A app.tasks worker --loglevel=info
+    volumes:
+      - ./backend/app:/app/app
+
+  # Celery beat scheduler for periodic tasks. It uses the same code
+  # base as the backend and executes the schedule defined in app/tasks.py.
+  celery_beat:
+    build: ./backend
+    restart: always
+    depends_on:
+      - backend
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ia_crm
+      JWT_SECRET_KEY: supersecretchangeme
+      BREVO_API_KEY: ""
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: celery -A app.tasks beat --loglevel=info
+    volumes:
+      - ./backend/app:/app/app
+
   frontend:
     build: ./frontend
     restart: always
