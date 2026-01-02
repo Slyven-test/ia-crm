@@ -45,7 +45,7 @@ def _export_as_csv(data: List[dict], filename: str) -> StreamingResponse:
     return response
 
 
-@router.get("/recommendations")
+@router.get("/recommendations", response_model=None)
 def export_recommendations(
     format: str = Query("csv", regex="^(csv|json)$", description="Format de sortie (csv ou json)"),
     current_user: models.User = Depends(get_current_user),
@@ -80,7 +80,7 @@ def export_recommendations(
     return _export_as_csv(data, "recommendations.csv")
 
 
-@router.get("/audit")
+@router.get("/audit", response_model=None)
 def export_audit_logs(
     format: str = Query("csv", regex="^(csv|json)$", description="Format de sortie (csv ou json)"),
     current_user: models.User = Depends(get_current_user),

@@ -11,7 +11,7 @@ interface ContactEvent {
 }
 
 export default function ContactsPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [events, setEvents] = useState<ContactEvent[]>([]);
   const [loading, setLoading] = useState(false);

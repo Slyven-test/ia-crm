@@ -45,3 +45,31 @@ ia-crm/
 ```
 
 Pour plus de détails sur chaque composant, consultez les fichiers README dans les sous‑dossiers `backend/`, `etl/` et `frontend/`.
+
+## Démarrage rapide
+
+### Développement local
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r backend/requirements-dev.txt
+cd frontend && npm ci && cd ..
+cd backend && ENABLE_DEMO_DATA=1 PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+Identifiants de démo : `demo` / `demo`.
+
+Pour exécuter le pipeline ETL avec des données d’exemple (écrit dans `data/demo.db` par défaut) :
+
+```bash
+DATABASE_URL=sqlite:///./data/demo.db python -m etl.demo
+```
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Le backend est exposé sur le port 8000 et le frontend sur le port 3000. Le `PYTHONPATH`
+est configuré automatiquement dans les services pour rendre le module `etl` disponible.
