@@ -17,6 +17,7 @@ import ConfigPage from './pages/ConfigPage';
 import ClustersPage from './pages/ClustersPage';
 import ReviewPage from './pages/ReviewPage';
 import RfmPage from './pages/RfmPage';
+import AliasPage from './pages/AliasPage';
 
 export default function App() {
   // Stockage du token JWT dans le state et dans localStorage
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/clusters" element={<ClustersPage />} />
           <Route path="/review" element={<ReviewPage />} />
         <Route path="/rfm" element={<RfmPage />} />
+        <Route path="/aliases" element={<AliasPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
