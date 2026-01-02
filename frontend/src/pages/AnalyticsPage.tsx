@@ -15,24 +15,37 @@ interface TrendPoint {
   revenue: number;
 }
 
+interface Outcomes {
+  emails_sent: number;
+  open_rate: number;
+  click_rate: number;
+  unsubscribe_rate: number;
+  conversion_rate: number;
+}
+
 export default function AnalyticsPage() {
   const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [outcomes, setOutcomes] = useState<Outcomes | null>(null);
 
   const fetchData = async () => {
     try {
-      const [ovRes, trendRes] = await Promise.all([
+      const [ovRes, trendRes, outRes] = await Promise.all([
         axios.get(`${apiUrl}/analytics/overview`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${apiUrl}/analytics/sales-trend?period=month`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
+        axios.get(`${apiUrl}/analytics/outcomes`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
       setOverview(ovRes.data);
       setTrend(trendRes.data);
+      setOutcomes(outRes.data);
     } catch (err) {
       console.error(err);
     }
@@ -72,6 +85,33 @@ export default function AnalyticsPage() {
             <p className="text-2xl">{overview.recommendation_count}</p>
           </div>
         </div>
+      )}
+      {outcomes && (
+        <>
+          <h2 className="text-2xl font-bold mb-2">Métriques marketing</h2>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="text-lg font-semibold">E‑mails envoyés</h3>
+              <p className="text-2xl">{outcomes.emails_sent}</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="text-lg font-semibold">Taux d'ouverture</h3>
+              <p className="text-2xl">{(outcomes.open_rate * 100).toFixed(1)}%</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="text-lg font-semibold">Taux de clic</h3>
+              <p className="text-2xl">{(outcomes.click_rate * 100).toFixed(1)}%</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="text-lg font-semibold">Taux de désabonnement</h3>
+              <p className="text-2xl">{(outcomes.unsubscribe_rate * 100).toFixed(1)}%</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="text-lg font-semibold">Taux de conversion</h3>
+              <p className="text-2xl">{(outcomes.conversion_rate * 100).toFixed(1)}%</p>
+            </div>
+          </div>
+        </>
       )}
       <h2 className="text-2xl font-bold mb-2">Tendance des ventes</h2>
       <div className="overflow-x-auto">
