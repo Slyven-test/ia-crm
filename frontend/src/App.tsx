@@ -14,6 +14,8 @@ import ETLPage from './pages/ETLPage';
 import RecoRunsPage from './pages/RecoRunsPage';
 import ContactsPage from './pages/ContactsPage';
 import ConfigPage from './pages/ConfigPage';
+import ClustersPage from './pages/ClustersPage';
+import ReviewPage from './pages/ReviewPage';
 
 export default function App() {
   // Stockage du token JWT dans le state et dans localStorage
@@ -51,6 +53,8 @@ export default function App() {
       <Route path="/runs" element={<RecoRunsPage />} />
       <Route path="/contacts" element={<ContactsPage />} />
       <Route path="/config" element={<ConfigPage />} />
+          <Route path="/clusters" element={<ClustersPage />} />
+          <Route path="/review" element={<ReviewPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
