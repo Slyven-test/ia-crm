@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # --- Tenant ---
@@ -28,8 +28,7 @@ class TenantRead(TenantBase):
     id: int
     created_at: dt.datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- User ---
@@ -49,8 +48,7 @@ class UserCreate(UserBase):
 class UserRead(UserBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Client ---
@@ -98,15 +96,13 @@ class ClientUpdate(BaseModel):
     aroma_profile: Optional[str] = None
     cluster: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ClientRead(ClientBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Product ---
@@ -170,8 +166,7 @@ class ProductUpdate(BaseModel):
     is_archived: Optional[bool] = None
     description: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProductRead(ProductBase):
@@ -200,8 +195,7 @@ class SaleCreate(SaleBase):
 class SaleRead(SaleBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- SaleUpdate ---
@@ -239,8 +233,7 @@ class OrderItemRead(OrderItemBase):
     id: int
     order_id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderBase(BaseModel):
@@ -259,8 +252,7 @@ class OrderRead(OrderBase):
     id: int
     items: list[OrderItemRead]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- ContactEvent ---
@@ -281,8 +273,7 @@ class ContactEventCreate(ContactEventBase):
 class ContactEventRead(ContactEventBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- RecoRun & Reco Outputs ---
@@ -316,8 +307,7 @@ class RecoRunRead(RecoRunBase):
     id: int
     summary: Optional[RunSummaryRead] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecoItemBase(BaseModel):
@@ -339,8 +329,88 @@ class RecoItemCreate(RecoItemBase):
 class RecoItemRead(RecoItemBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecoOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    scenario: Optional[str] = None
+    rank: Optional[int] = None
+    product_key: str
+    score: Optional[float] = None
+    explain_short: Optional[str] = None
+    reasons_json: Optional[str] = None
+    tenant_id: int
+
+
+class RecoOutputRead(RecoOutputBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    severity: str
+    rule_code: str
+    details_json: Optional[str] = None
+    tenant_id: int
+
+
+class AuditOutputRead(AuditOutputBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NextActionOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    eligible: bool
+    reason: Optional[str] = None
+    scenario: Optional[str] = None
+    audit_score: Optional[float] = None
+    tenant_id: int
+
+
+class NextActionOutputRead(NextActionOutputBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecoRunDetail(BaseModel):
+    run: RecoRunRead
+    summary: Optional[dict] = None
+    next_actions: list[NextActionOutputRead] = []
+    top_audit: list[AuditOutputRead] = []
+
+
+# --- Brevo ---
+
+class BrevoLogRead(BaseModel):
+    id: int
+    run_id: Optional[str] = None
+    batch_id: Optional[str] = None
+    action: str
+    payload_redacted: Optional[str] = None
+    status: str
+    created_at: Optional[dt.datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ContactHistoryRead(BaseModel):
+    id: int
+    customer_code: str
+    last_contact_at: dt.datetime
+    channel: Optional[str] = None
+    status: Optional[str] = None
+    meta: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecoOutputBase(BaseModel):
@@ -448,8 +518,7 @@ class RecommendationRead(RecommendationBase):
     id: int
     created_at: dt.datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Campaign ---
@@ -470,8 +539,7 @@ class CampaignRead(CampaignBase):
     id: int
     created_at: dt.datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- AuditLog ---
@@ -488,8 +556,7 @@ class AuditLogBase(BaseModel):
 class AuditLogRead(AuditLogBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- ConfigSetting ---
@@ -519,8 +586,7 @@ class ConfigSettingRead(ConfigSettingBase):
     id: int
     tenant_id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ------------------ Aliases ------------------

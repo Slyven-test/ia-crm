@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
 from .auth import get_current_user
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
@@ -55,8 +55,7 @@ class ContactRead(BaseModel):
     contact_date: datetime
     campaign_id: Optional[int]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.post("/", response_model=ContactRead, status_code=201)
