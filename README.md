@@ -108,6 +108,16 @@ pytest tests/test_e2e_api.py::test_e2e_pipeline_with_exports
 
 Le test copie les fixtures `samples/isavigne`, exécute l’ETL multi-tenant, lance un run de recommandations via l’API (auth mockée) puis vérifie les exports (`reco_output`, `audit_output`, `next_action_output`, `run_summary`) et le gating (`gate_export` doit être `False` car un client n’a pas d’email).
 
+#### Smoke UI (pages Runs/QC/Exports/Campagnes)
+
+Pour vérifier rapidement le chargement des principales pages front avec la démo (`demo/demo`) :
+
+```bash
+./scripts/ui_smoke.sh
+```
+
+Le script démarre le backend (SQLite + données démo), build/preview le frontend et lance Playwright (`npm run test:ui-smoke`) qui ouvre les pages Runs, Audit/QC, Exports et Campagnes en vérifiant l’absence d’erreurs console.
+
 ## Parcours opérationnel (ingestion → reco → QC → export)
 
 1. **Ingestion** : déposez vos CSV dans `data/<tenant>/raw/` puis lancez l’ingestion ou utilisez les exemples `samples/isavigne`. Le script `etl/ingest_runner.py` écrit les versions staging/curated et produit un rapport dans `data/<tenant>/runs/<run_id>/report.json`.
