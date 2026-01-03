@@ -181,25 +181,6 @@ class ProductRead(ProductBase):
         orm_mode = True
 
 
-# --- ProductAlias ---
-
-class ProductAliasBase(BaseModel):
-    label_norm: str
-    product_key: str
-    tenant_id: int
-
-
-class ProductAliasCreate(ProductAliasBase):
-    pass
-
-
-class ProductAliasRead(ProductAliasBase):
-    id: int
-
-    class Config:
-        orm_mode = True
-
-
 # --- Sale ---
 
 class SaleBase(BaseModel):
@@ -304,9 +285,12 @@ class ContactEventRead(ContactEventBase):
         orm_mode = True
 
 
-# --- RecoRun & RecoItem ---
+# --- RecoRun & Reco Outputs ---
 
 class RecoRunBase(BaseModel):
+    run_id: Optional[str] = None
+    started_at: Optional[dt.datetime] = None
+    finished_at: Optional[dt.datetime] = None
     executed_at: Optional[dt.datetime] = None
     dataset_version: Optional[str] = None
     config_hash: Optional[str] = None
@@ -319,8 +303,18 @@ class RecoRunCreate(RecoRunBase):
     pass
 
 
+class RunSummaryRead(BaseModel):
+    run_id: str
+    summary_json: Optional[str] = None
+    tenant_id: int
+
+    class Config:
+        orm_mode = True
+
+
 class RecoRunRead(RecoRunBase):
     id: int
+    summary: Optional[RunSummaryRead] = None
 
     class Config:
         orm_mode = True
@@ -347,6 +341,65 @@ class RecoItemRead(RecoItemBase):
 
     class Config:
         orm_mode = True
+
+
+class RecoOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    scenario: Optional[str] = None
+    rank: Optional[int] = None
+    product_key: str
+    score: Optional[float] = None
+    explain_short: Optional[str] = None
+    reasons_json: Optional[str] = None
+    tenant_id: int
+
+
+class RecoOutputRead(RecoOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class AuditOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    severity: str
+    rule_code: str
+    details_json: Optional[str] = None
+    tenant_id: int
+
+
+class AuditOutputRead(AuditOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class NextActionOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    eligible: bool
+    reason: Optional[str] = None
+    scenario: Optional[str] = None
+    audit_score: Optional[float] = None
+    tenant_id: int
+
+
+class NextActionOutputRead(NextActionOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class RecoRunDetail(BaseModel):
+    run: RecoRunRead
+    summary: Optional[dict] = None
+    next_actions: list[NextActionOutputRead] = []
+    top_audit: list[AuditOutputRead] = []
 
 
 # --- Recommendation ---
@@ -450,12 +503,16 @@ class ProductAliasBase(BaseModel):
 
     label_norm: str
     product_key: str
+    tenant_id: Optional[int] = None
+    label_raw: Optional[str] = None
+    confidence: Optional[float] = 1.0
+    source: Optional[str] = "manual"
 
 
 class ProductAliasCreate(ProductAliasBase):
     """Schéma pour créer un nouvel alias de produit."""
 
-    pass
+    tenant_id: Optional[int] = None
 
 
 class ProductAliasUpdate(BaseModel):
@@ -463,6 +520,9 @@ class ProductAliasUpdate(BaseModel):
 
     label_norm: Optional[str] = None
     product_key: Optional[str] = None
+    label_raw: Optional[str] = None
+    confidence: Optional[float] = None
+    source: Optional[str] = None
 
 
 class ProductAliasRead(ProductAliasBase):
@@ -470,6 +530,8 @@ class ProductAliasRead(ProductAliasBase):
 
     id: int
     tenant_id: int
+    created_at: Optional[dt.datetime] = None
+    updated_at: Optional[dt.datetime] = None
 
     class Config:
         orm_mode = True

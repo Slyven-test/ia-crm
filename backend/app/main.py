@@ -8,10 +8,13 @@ expose également un endpoint racine pour vérifier que l’API est opérationne
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import Base, engine
+from .database import Base, engine, SessionLocal
+from .demo_seed import seed_demo_data
 from .routers import (
     auth,
     tenants,
@@ -32,6 +35,7 @@ from .routers import (
     config,
     clusters,
     aliases,
+    reco_pipeline,
 )
 
 
@@ -40,6 +44,12 @@ def create_app() -> FastAPI:
 
     # Créer les tables en base si nécessaire
     Base.metadata.create_all(bind=engine)
+    if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
+        db = SessionLocal()
+        try:
+            seed_demo_data(db)
+        finally:
+            db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
     app.add_middleware(
@@ -82,6 +92,8 @@ def create_app() -> FastAPI:
 
     # Router pour les alias produits
     app.include_router(aliases.router)
+    # Pipeline reco/audit/export
+    app.include_router(reco_pipeline.router)
 
     @app.get("/")
     def read_root():

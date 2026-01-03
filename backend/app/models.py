@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
+from uuid import uuid4
 
 from .database import Base
 
@@ -195,17 +196,25 @@ class ProductAlias(Base):
     """
     Mapping entre un label de produit brut et la clé ``product_key``.
 
-    Lors de l'ingestion, on normalise le label (minuscules, accents,
-    espaces) et on recherche la correspondance dans cette table. Si
-    aucune correspondance n'est trouvée, une erreur d'ingestion est
-    déclenchée et une entrée doit être créée via l'interface.
+    Les labels sont normalisés (minuscules, accents/ponctuation retirés).
+    Un alias est propre à un tenant et peut provenir de différentes
+    sources (ingestion automatique, saisie manuelle).
     """
 
     __tablename__ = "product_alias"
     id = Column(Integer, primary_key=True, index=True)
-    label_norm = Column(String, unique=True, index=True)
+    label_raw = Column(String, nullable=True)
+    label_norm = Column(String, index=True)
     product_key = Column(String, ForeignKey("products.product_key"), nullable=False)
+    confidence = Column(Float, default=1.0)
+    source = Column(String, default="manual")
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "label_norm", name="uq_product_alias_label_tenant"),
+    )
 
     def __repr__(self) -> str:
         return f"<Alias {self.label_norm}->{self.product_key}>"
@@ -292,7 +301,10 @@ class RecoRun(Base):
 
     __tablename__ = "reco_runs"
     id = Column(Integer, primary_key=True, index=True)
-    executed_at = Column(DateTime, default=dt.datetime.utcnow)
+    run_id = Column(String, unique=True, index=True, default=lambda: uuid4().hex)
+    started_at = Column(DateTime, default=dt.datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, default=dt.datetime.utcnow)  # compat historique
     dataset_version = Column(String, nullable=True)
     config_hash = Column(String, nullable=True)
     code_version = Column(String, nullable=True)
@@ -300,9 +312,13 @@ class RecoRun(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     items = relationship("RecoItem", back_populates="run")
+    outputs = relationship("RecoOutput", back_populates="run")
+    audits = relationship("AuditOutput", back_populates="run")
+    next_actions = relationship("NextActionOutput", back_populates="run")
+    summary = relationship("RunSummary", back_populates="run", uselist=False)
 
     def __repr__(self) -> str:
-        return f"<RecoRun {self.id} at {self.executed_at}>"
+        return f"<RecoRun {self.run_id} at {self.started_at}>"
 
 
 class RecoItem(Base):
@@ -330,6 +346,75 @@ class RecoItem(Base):
 
     def __repr__(self) -> str:
         return f"<RecoItem {self.client_id}->{self.product_id} rank={self.rank}>"
+
+
+class RecoOutput(Base):
+    """
+    Sortie structurée d'un run de recommandations.
+    """
+
+    __tablename__ = "reco_output"
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, ForeignKey("reco_runs.run_id"), nullable=False, index=True)
+    customer_code = Column(String, nullable=False, index=True)
+    scenario = Column(String, nullable=True)
+    rank = Column(Integer, nullable=True)
+    product_key = Column(String, nullable=False)
+    score = Column(Float, nullable=True)
+    explain_short = Column(String, nullable=True)
+    reasons_json = Column(Text, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    run = relationship("RecoRun", back_populates="outputs")
+
+
+class AuditOutput(Base):
+    """
+    Résultats d'audit associés à un run.
+    """
+
+    __tablename__ = "audit_output"
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, ForeignKey("reco_runs.run_id"), nullable=False, index=True)
+    customer_code = Column(String, nullable=False, index=True)
+    severity = Column(String, nullable=False)  # ERROR ou WARN
+    rule_code = Column(String, nullable=False)
+    details_json = Column(Text, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    run = relationship("RecoRun", back_populates="audits")
+
+
+class NextActionOutput(Base):
+    """
+    Résumé d'éligibilité/gating par client suite à l'audit.
+    """
+
+    __tablename__ = "next_action_output"
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, ForeignKey("reco_runs.run_id"), nullable=False, index=True)
+    customer_code = Column(String, nullable=False, index=True)
+    eligible = Column(Boolean, default=False)
+    reason = Column(String, nullable=True)
+    scenario = Column(String, nullable=True)
+    audit_score = Column(Float, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    run = relationship("RecoRun", back_populates="next_actions")
+
+
+class RunSummary(Base):
+    """
+    Stocke un résumé agrégé par run (JSON sérialisé).
+    """
+
+    __tablename__ = "run_summary"
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String, ForeignKey("reco_runs.run_id"), unique=True, nullable=False)
+    summary_json = Column(Text, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    run = relationship("RecoRun", back_populates="summary")
 
 
 class Campaign(Base):
