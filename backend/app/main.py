@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
     # Configurer CORS pour permettre les appels depuis le frontend
     origin_env = os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS")
     allowed_origins = (origin_env or "http://localhost:3000").split(",")
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in allowed_origins if o.strip()],
