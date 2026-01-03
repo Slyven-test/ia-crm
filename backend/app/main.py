@@ -47,6 +47,29 @@ def create_app() -> FastAPI:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    class _RedactFilter(logging.Filter):
+        def __init__(self) -> None:
+            super().__init__()
+            self._secrets = [
+                os.getenv("BREVO_API_KEY", ""),
+                os.getenv("DATABASE_URL", ""),
+                os.getenv("JWT_SECRET_KEY", ""),
+            ]
+
+        def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - simple guard
+            msg = record.getMessage()
+            for secret in self._secrets:
+                if secret:
+                    msg = msg.replace(secret, "***")
+            record.msg = msg
+            record.args = ()
+            return True
+
+    root_logger = logging.getLogger()
+    redact_filter = _RedactFilter()
+    root_logger.addFilter(redact_filter)
+    for handler in root_logger.handlers:
+        handler.addFilter(redact_filter)
 
     # Créer les tables en base si nécessaire
     Base.metadata.create_all(bind=engine)
@@ -58,6 +81,8 @@ def create_app() -> FastAPI:
             db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
+    origin_env = os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS")
+    allowed_origins = (origin_env or "http://localhost:3000").split(",")
     allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
