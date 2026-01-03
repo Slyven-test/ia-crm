@@ -14,6 +14,8 @@ import os
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Tuple, Protocol, runtime_checkable
+from typing import Dict, List, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -131,6 +133,10 @@ def send_batch(
         .filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id)
         .first()
     )
+) -> Dict:
+    """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
+    dry_run = _is_dry_run(force_dry_run)
+    summary = db.query(RunSummary).filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id).first()
     summary_json = {}
     if summary and summary.summary_json:
         try:
@@ -177,6 +183,12 @@ def send_batch(
         action="send_batch",
         status=status,
         payload=payload,
+        payload={
+            "run_id": run_id,
+            "template_id": template_id,
+            "count": len(preview),
+            "batch_size": batch_size,
+        },
         run_id=run_id,
         batch_id=batch_id,
     )
