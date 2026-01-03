@@ -9,6 +9,7 @@ interface Health {
 
 export default function StatusBar() {
   const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [health, setHealth] = useState<Health | null>(null);
   const [lastRun, setLastRun] = useState<string | null>(null);
