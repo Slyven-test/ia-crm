@@ -124,6 +124,31 @@ def load_table_with_tenant(
         initial_rows = len(df)
         logger.info(f"   Chargé: {initial_rows} lignes brutes")
 
+        required_columns: dict[str, list[str | tuple[str, ...]]] = {
+            "clients": ["client_code"],
+            "products": ["product_key", "name"],
+            "sales": ["document_id", "client_code", ("product_key", "product_label")],
+        }
+        missing_cols: list[str] = []
+        for col in required_columns.get(table_name, []):
+            if isinstance(col, tuple):
+                if not any(c in df.columns for c in col):
+                    missing_cols.append("/".join(col))
+            elif col not in df.columns:
+                missing_cols.append(col)
+        if missing_cols:
+            logger.error(f"   ✗ Colonnes manquantes: {missing_cols}")
+            return {
+                "success": False,
+                "table": f"{schema}.{table_name}",
+                "error_type": "MissingColumns",
+                "missing_columns": missing_cols,
+                "tenant_id": tenant_id,
+            }
+
+        if table_name == "sales" and "sale_date" in df.columns:
+            df["sale_date"] = pd.to_datetime(df["sale_date"], errors="coerce")
+
         # Déduplication selon la table
         duplicates_removed = 0
         if table_name == "sales":

@@ -98,6 +98,16 @@ Le script :
 3. appelle `/health`, `/docs` et la page d’accueil du frontend ;
 4. arrête et supprime les ressources créées (`docker compose down -v`).
 
+#### E2E self-test (ingestion → reco → exports)
+
+Pour vérifier automatiquement le parcours complet avec les jeux d’échantillon :
+
+```bash
+pytest tests/test_e2e_api.py::test_e2e_pipeline_with_exports
+```
+
+Le test copie les fixtures `samples/isavigne`, exécute l’ETL multi-tenant, lance un run de recommandations via l’API (auth mockée) puis vérifie les exports (`reco_output`, `audit_output`, `next_action_output`, `run_summary`) et le gating (`gate_export` doit être `False` car un client n’a pas d’email).
+
 ## Parcours opérationnel (ingestion → reco → QC → export)
 
 1. **Ingestion** : déposez vos CSV dans `data/<tenant>/raw/` puis lancez l’ingestion ou utilisez les exemples `samples/isavigne`. Le script `etl/ingest_runner.py` écrit les versions staging/curated et produit un rapport dans `data/<tenant>/runs/<run_id>/report.json`.

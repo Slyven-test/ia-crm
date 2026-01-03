@@ -58,10 +58,12 @@ def trigger_reco_run(
         .all()
     )
     return schemas.RecoRunDetail(
-        run=run,
+        run=schemas.RecoRunRead.model_validate(run, from_attributes=True),
         summary=result.get("summary"),
-        next_actions=next_actions,
-        top_audit=audit_rows,
+        next_actions=[
+            schemas.NextActionOutputRead.model_validate(na, from_attributes=True) for na in next_actions
+        ],
+        top_audit=[schemas.AuditOutputRead.model_validate(a, from_attributes=True) for a in audit_rows],
     )
 
 
@@ -108,4 +110,11 @@ def get_run_detail(
         .limit(50)
         .all()
     )
-    return schemas.RecoRunDetail(run=run, summary=summary, next_actions=next_actions, top_audit=audit_rows)
+    return schemas.RecoRunDetail(
+        run=schemas.RecoRunRead.model_validate(run, from_attributes=True),
+        summary=summary,
+        next_actions=[
+            schemas.NextActionOutputRead.model_validate(na, from_attributes=True) for na in next_actions
+        ],
+        top_audit=[schemas.AuditOutputRead.model_validate(a, from_attributes=True) for a in audit_rows],
+    )
