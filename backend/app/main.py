@@ -12,6 +12,8 @@ import importlib
 import logging
 import os
 
+from sqlalchemy.exc import OperationalError
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -71,9 +73,21 @@ def create_app() -> FastAPI:
     for handler in root_logger.handlers:
         handler.addFilter(redact_filter)
 
-    # Créer les tables en base si nécessaire
-    Base.metadata.create_all(bind=engine)
-    if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
+    # Créer les tables en base si nécessaire (tolérant en l'absence de DB)
+    strict_startup = os.getenv("DB_STRICT_STARTUP", "0").lower() in {"1", "true", "yes", "on"}
+    db_ready = True
+    try:
+        Base.metadata.create_all(bind=engine)
+    except OperationalError as exc:
+        db_ready = False
+        msg = (
+            "Base de données indisponible au démarrage, initialisation du schéma ignorée "
+            "(DB_STRICT_STARTUP=1 pour échec immédiat)"
+        )
+        logging.getLogger(__name__).warning("%s (%s)", msg, exc)
+        if strict_startup:
+            raise
+    if db_ready and os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
         db = SessionLocal()
         try:
             seed_demo_data(db)
