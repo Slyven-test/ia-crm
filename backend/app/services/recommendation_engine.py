@@ -250,6 +250,56 @@ def _build_recommendations_for_client(
         1, len(purchases)
     )
 
+
+
+def _upsell_candidates(
+    purchases: List[Sale],
+    product_map: Dict[str, Product],
+    purchased: Set[str],
+    average_price: float,
+) -> List[Product]:
+    candidates: List[Tuple[Product, float]] = []
+    for prod in product_map.values():
+        if prod.product_key in purchased or not prod.family_crm:
+            continue
+        if prod.price_ttc is None:
+            continue
+        # même famille que les achats
+        fam_match = any(
+            product_map.get(s.product_key) and product_map[s.product_key].family_crm == prod.family_crm
+            for s in purchases
+        )
+        if fam_match and prod.price_ttc > average_price:
+            candidates.append((prod, prod.price_ttc))
+    candidates.sort(key=lambda t: t[1], reverse=True)
+    return [p for p, _ in candidates]
+
+
+def _explain(scenario: str, product: Product, context: dict) -> str:
+    if scenario == "rebuy":
+        return f"Déjà acheté : {product.name}"
+    if scenario == "cross_sell":
+        return f"Populaire dans le segment {context.get('segment','global')}"
+    if scenario == "upsell":
+        return f"Plus premium (prix {product.price_ttc or 0:.2f})"
+    return f"Suggestion {scenario}"
+
+
+def _build_recommendations_for_client(
+    client: Client,
+    purchases: List[Sale],
+    product_map: Dict[str, Product],
+    popularity: Counter,
+    top_n: int,
+    now: dt.datetime,
+) -> List[Dict]:
+    recos: List[Dict] = []
+    added: Set[str] = set()
+    purchased_keys = {s.product_key for s in purchases}
+    avg_price = sum([(product_map.get(s.product_key).price_ttc or 0) for s in purchases if product_map.get(s.product_key)]) / max(
+        1, len(purchases)
+    )
+
     def add_candidates(products: List[Product], scenario: str):
         for prod in products:
             if prod.product_key in added:
@@ -377,6 +427,7 @@ def generate_recommendations_run(
                     tenant_id=tenant_id,
                 )
             )
+            )
 
         issues, audit_score, is_eligible, reason = audit_client(
             client,
@@ -413,6 +464,10 @@ def generate_recommendations_run(
             silence_window_days=silence_window_days,
         )
         for issue in issues:
+            if issue.get("severity") == "ERROR":
+                total_errors += 1
+            else:
+                total_warns += 1
             audit_issues_counter[issue["rule_code"]] += 1
             db.add(
                 AuditOutput(

@@ -109,6 +109,32 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    def _include_core_routes(prefix: str = "", include_in_schema: bool = True) -> None:
+        routers = [
+            auth.router,
+            tenants.router,
+            recommendations.router,
+            campaigns.router,
+            rfm.router,
+            analytics.router,
+            audit.router,
+            clients.router,
+            products.router,
+            sales.router,
+            profiles.router,
+            system.router,
+            export.router,
+            contacts.router,
+            reco_runs.router,
+            config.router,
+            clusters.router,
+            aliases.router,
+            reco_pipeline.router,
+        ]
+        for router in routers:
+            app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
+
+    def _include_optional(module_path: str, label: str, prefix: str = "", include_in_schema: bool = True) -> None:
     # Inclure les routeurs
     app.include_router(auth.router)
     app.include_router(tenants.router)
@@ -149,6 +175,19 @@ def create_app() -> FastAPI:
         try:
             module = importlib.import_module(module_path)
             router = getattr(module, "router")
+            app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
+        except Exception as exc:  # pragma: no cover - import errors only
+            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
+
+    # Inclure les routeurs sans préfixe (compatibilité)
+    _include_core_routes()
+    _include_optional("backend.app.routers.etl", "etl")
+    _include_optional("backend.app.routers.brevo", "brevo")
+
+    # Inclure les mêmes routeurs sous /api pour le frontend
+    _include_core_routes(prefix="/api", include_in_schema=False)
+    _include_optional("backend.app.routers.etl", "etl", prefix="/api", include_in_schema=False)
+    _include_optional("backend.app.routers.brevo", "brevo", prefix="/api", include_in_schema=False)
             app.include_router(router)
         except Exception as exc:  # pragma: no cover - import errors only
             logger.warning("Module optionnel %s non chargé (%s)", label, exc)

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Alias {
   id: number;
@@ -13,6 +14,7 @@ interface Product {
 }
 
 export default function AliasPage() {
+  const apiUrl = API_BASE_URL;
   const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [aliases, setAliases] = useState<Alias[]>([]);
