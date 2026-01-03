@@ -137,6 +137,12 @@ Variables d’environnement (cf. `.env.example`) :
 - `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME`
 - `ALLOWED_ORIGINS` pour CORS strict
 
+### Brevo DRY RUN validation
+
+* Par défaut (`BREVO_DRY_RUN=1`), aucun appel réseau n’est effectué ; les lots sont journalisés dans `brevo_logs` avec payload redacted.
+* `POST /brevo/send_batch` refuse les lots hors plage 200–300 et ne prend que les contacts `gate_export=true`.
+* Les tests automatisés vérifient l’absence d’appel HTTP en DRY RUN et la taille effective du lot.
+
 Endpoints principaux :
 - `POST /brevo/sync_contacts` : prépare la synchro de contacts (DRY RUN loggué).
 - `POST /brevo/send_batch` : envoie/simule un batch basé sur un `run_id` avec `batch_size` 200-300 et filtrage `gate_export=true`.

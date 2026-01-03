@@ -13,6 +13,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from typing import Any, Dict, List, Tuple, Protocol, runtime_checkable
 from typing import Dict, List, Tuple
 
 from sqlalchemy.orm import Session
@@ -71,6 +72,25 @@ def _record_contact_history(
     db.commit()
 
 
+@runtime_checkable
+class BrevoClient(Protocol):
+    """Client HTTP minimal pour Brevo."""
+
+    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]: ...
+
+
+class DummyBrevoClient:
+    """Implémentation neutre qui n'effectue aucun appel réseau."""
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key
+        self.calls: List[Dict[str, Any]] = []
+
+    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        self.calls.append(payload)
+        return {"status": "noop"}
+
+
 def sync_contacts(db: Session, tenant_id: int, force_dry_run: bool | None = None) -> Dict:
     """Prépare la synchro des contacts Brevo (DRY RUN par défaut)."""
     dry_run = _is_dry_run(force_dry_run)
@@ -101,6 +121,11 @@ def send_batch(
     batch_size: int,
     force_dry_run: bool | None = None,
     preview_only: bool = False,
+    client: BrevoClient | None = None,
+) -> Dict:
+    """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
+    if batch_size < 200 or batch_size > 300:
+        raise ValueError("batch_size must be between 200 and 300")
 ) -> Dict:
     """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
     dry_run = _is_dry_run(force_dry_run)
@@ -139,11 +164,18 @@ def send_batch(
     ][:5]
     batch_id = uuid.uuid4().hex
     status = "dry_run" if dry_run or preview_only else "ready"
+    payload = {
+        "run_id": run_id,
+        "template_id": template_id,
+        "count": len(preview),
+        "batch_size": batch_size,
+    }
     _log_action(
         db,
         tenant_id,
         action="send_batch",
         status=status,
+        payload=payload,
         payload={
             "run_id": run_id,
             "template_id": template_id,
@@ -155,6 +187,16 @@ def send_batch(
     )
     for c in preview:
         _record_contact_history(db, tenant_id, c["customer_code"], status=status, meta={"batch_id": batch_id})
+    if not dry_run and not preview_only:
+        http_client = client or DummyBrevoClient(os.getenv("BREVO_API_KEY"))
+        http_client.send_batch(
+            {
+                "template_id": template_id,
+                "contacts": preview,
+                "batch_id": batch_id,
+                "run_id": run_id,
+            }
+        )
     return {
         "run_id": run_id,
         "template_id": template_id,
