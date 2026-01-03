@@ -10,7 +10,7 @@ interface ConfigSetting {
 }
 
 export default function ConfigPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
   const [editingKey, setEditingKey] = useState<string | null>(null);

@@ -8,10 +8,15 @@ expose également un endpoint racine pour vérifier que l’API est opérationne
 
 from __future__ import annotations
 
+import importlib
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import Base, engine
+from .database import Base, engine, SessionLocal
+from .demo_seed import seed_demo_data
 from .routers import (
     auth,
     tenants,
@@ -25,26 +30,38 @@ from .routers import (
     sales,
     profiles,
     system,
-    etl,
     export,
     contacts,
     reco_runs,
     config,
     clusters,
     aliases,
+    reco_pipeline,
 )
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ia-crm", version="0.1.0")
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     # Créer les tables en base si nécessaire
     Base.metadata.create_all(bind=engine)
+    if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
+        db = SessionLocal()
+        try:
+            seed_demo_data(db)
+        finally:
+            db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # en production, restreindre aux domaines autorisés
+        allow_origins=[o.strip() for o in allowed_origins if o.strip()],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -64,7 +81,6 @@ def create_app() -> FastAPI:
     app.include_router(profiles.router)
     app.include_router(system.router)
     # Router pour les opérations ETL
-    app.include_router(etl.router)
     # Router pour l'export de données
     app.include_router(export.router)
     # Router pour les événements de contact
@@ -82,6 +98,22 @@ def create_app() -> FastAPI:
 
     # Router pour les alias produits
     app.include_router(aliases.router)
+    # Pipeline reco/audit/export
+    app.include_router(reco_pipeline.router)
+
+    def _include_optional(module_path: str, label: str) -> None:
+        """Inclut un routeur optionnel sans casser le démarrage si le module manque."""
+        logger = logging.getLogger(__name__)
+        try:
+            module = importlib.import_module(module_path)
+            router = getattr(module, "router")
+            app.include_router(router)
+        except Exception as exc:  # pragma: no cover - import errors only
+            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
+
+    # Routers optionnels : ETL et Brevo peuvent manquer selon l'environnement
+    _include_optional("backend.app.routers.etl", "etl")
+    _include_optional("backend.app.routers.brevo", "brevo")
 
     @app.get("/")
     def read_root():
