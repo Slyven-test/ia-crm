@@ -15,6 +15,7 @@ interface Product {
 
 export default function AliasPage() {
   const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
