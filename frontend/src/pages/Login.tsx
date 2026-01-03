@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Props {
   onLogin: (token: string) => void;
@@ -10,6 +11,7 @@ export default function LoginPage({ onLogin }: Props) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const apiUrl = API_BASE_URL;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +22,7 @@ export default function LoginPage({ onLogin }: Props) {
       params.append('username', username);
       params.append('password', password);
       // OAuth2 password grant requires grant_type (but FastAPI's OAuth2PasswordRequestForm auto adds it)
-      const response = await axios.post('/api/auth/token', params, {
+      const response = await axios.post(`${apiUrl}/auth/token`, params, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       const token = response.data.access_token;

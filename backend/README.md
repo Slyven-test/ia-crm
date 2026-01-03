@@ -48,14 +48,21 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 
    ```bash
    cd backend
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt  # inclut l'installation editable de l'ETL
    ```
 
 2. Configurez les variables d’environnement :
 
-   - `DATABASE_URL`: URL de connexion PostgreSQL (par ex. `postgresql+psycopg2://user:pass@localhost:5432/ia_crm`)
+   - `DATABASE_URL`: URL de connexion PostgreSQL (par ex. `postgresql+psycopg2://user:pass@localhost:5432/ia_crm`). Si non défini en développement, l’API bascule automatiquement sur SQLite (`sqlite:///./ia_crm_dev.db`).
    - `JWT_SECRET_KEY`: clé secrète utilisée pour signer les tokens JWT
-   - `BREVO_API_KEY` (optionnel) : clé API pour l’intégration Brevo
+   - `BREVO_API_KEY` (optionnel) : clé API pour l’intégration Brevo (pas de réseau si absente ou DRY RUN)
+   - `BREVO_DRY_RUN` (défaut `1`) : bloque tout appel réseau, journalise uniquement
+   - `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME` : valeurs par défaut pour les envois
+   - `BREVO_BASE_URL` (optionnel) : override de l’URL API Brevo (`https://api.brevo.com/v3` par défaut)
+   - `ENABLE_DEMO_DATA`: si vrai, crée un tenant + utilisateur `demo/demo` et quelques données
+   - `DB_STRICT_STARTUP`: si vrai (`1/true`), échoue immédiatement si la base définie par `DATABASE_URL` est inaccessible (par défaut, l’API démarre en loggant un avertissement)
+   - `DATA_DIR`: répertoire racine pour l’ETL (défaut : `./data`)
+   - Pipeline reco: `DATABASE_URL` (si absent → SQLite `./data/pipeline.db`), `DATA_DIR` (défaut `./data`)
 
    Vous pouvez créer un fichier `.env` à la racine du projet et utiliser
    `python-dotenv` pour charger ces variables automatiquement.
@@ -63,8 +70,27 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 3. Lancez le serveur en développement :
 
    ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   # Assurez-vous que le dossier racine (qui contient `etl/`) est sur le PYTHONPATH
+   ENABLE_DEMO_DATA=1 PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
+
+   En mode Docker, `docker-compose up --build` utilise désormais le contexte racine et
+   définit automatiquement `PYTHONPATH=/app:/app/etl` afin de rendre le module `etl`
+   disponible pour les routes correspondantes.
+
+4. Données de démo : exécutez `python -m etl.demo` (avec `DATABASE_URL` pointant vers
+   votre base) pour charger un petit jeu d'essai. Un utilisateur `demo`/`demo` est créé
+   si `ENABLE_DEMO_DATA` est activé.
+
+## Pipeline de recommandations en local (sans Postgres)
+
+Une commande unique permet de lancer l’ETL (ingestion → normalisation → chargement), le calcul RFM, les recommandations + audit, puis de générer les exports CSV/JSON, le tout en SQLite par défaut :
+
+```bash
+python -m backend.app.cli.run_pipeline
+```
+
+Exports écrits dans `./exports/<run_id>/` : `reco_output.csv`, `audit_output.csv`, `next_action_output.csv`, `run_summary.json` (inclut `n_errors`, `n_warns`, `audit_score`, `gate_export`).
 
 ## Points d’extension
 
@@ -73,8 +99,8 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 - **Moteur de recommandations** : l’implémentation minimale propose une
   recommandation de top produits. Adaptez les algorithmes selon les
   besoins (analyse RFM, scénarios cross‑sell/upsell, règles métier, etc.).
-- **Notifications et campagnes** : pour envoyer de vrais e‑mails via Brevo
-  ou un autre fournisseur, implémentez les appels API dans
-  `services/brevo_service.py` et gérez la planification (scheduler, files
-  d’attente). Vous pouvez également intégrer des SMS ou des messages
-  push.
+- **Notifications et campagnes** : l’intégration Brevo est **safe-by-default** :
+  - Par défaut (`BREVO_DRY_RUN=1` ou absence de `BREVO_API_KEY`), aucun appel réseau n’est effectué ; les actions sont simplement journalisées (`brevo_logs`, `contact_history`).
+  - Pour activer le mode LIVE, définir `BREVO_DRY_RUN=0` **et** fournir `BREVO_API_KEY`. Un client HTTP réel est alors instancié pour `sync_contacts`/`send_batch`, sinon un stub neutre est utilisé.
+  - Workflow recommandé : `sync_contacts` (prépare les contacts) → `send_batch` (prévisualise ou envoie un lot, taille 200–300). Les tests/CI restent offline (aucun trafic sortant).
+  - En cas d’erreur HTTP (ex. 429), un backoff/retry minimal est appliqué avant d’échouer proprement.
