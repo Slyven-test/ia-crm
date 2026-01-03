@@ -35,6 +35,7 @@ from .routers import (
     config,
     clusters,
     aliases,
+    reco_pipeline,
 )
 
 
@@ -91,6 +92,8 @@ def create_app() -> FastAPI:
 
     # Router pour les alias produits
     app.include_router(aliases.router)
+    # Pipeline reco/audit/export
+    app.include_router(reco_pipeline.router)
 
     @app.get("/")
     def read_root():

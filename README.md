@@ -73,3 +73,14 @@ docker compose up --build
 
 Le backend est exposé sur le port 8000 et le frontend sur le port 3000. Le `PYTHONPATH`
 est configuré automatiquement dans les services pour rendre le module `etl` disponible.
+
+## Parcours opérationnel (ingestion → reco → QC → export)
+
+1. **Ingestion** : déposez vos CSV dans `data/<tenant>/raw/` puis lancez l’ingestion ou utilisez les exemples `samples/isavigne`. Le script `etl/ingest_runner.py` écrit les versions staging/curated et produit un rapport dans `data/<tenant>/runs/<run_id>/report.json`.
+2. **Run de recommandations** : depuis le backend, appelez `POST /reco/run` (options `top_n`, `silence_window_days`) ou cliquez sur *Lancer un run* dans l’écran *Runs*. Cela génère les tables `reco_output`, `audit_output`, `next_action_output` et un `run_summary`.
+3. **QC / gating** : l’écran *QC* affiche les 20 plus faibles `audit_score`, les règles bloquantes (SILENCE_WINDOW, MISSING_EMAIL, OPTOUT_OR_BOUNCE, RECENT_DUPLICATE, UPSELL_NOT_HIGHER, CROSS_SELL_NOT_NEW, LOW_DIVERSITY, SUGAR_MISMATCH) et le taux de gating calculé (`audit_score = 100 - 40·erreurs - 10·warnings`, export autorisé si erreurs=0 et score ≥ 80).
+4. **Exports** : téléchargez les fichiers standards via les boutons des écrans *Runs* ou *Exports* ou directement :
+   * `/export/runs/{run_id}/reco_output.csv`
+   * `/export/runs/{run_id}/audit_output.csv`
+   * `/export/runs/{run_id}/next_action_output.csv`
+   * `/export/runs/{run_id}/run_summary.json`
