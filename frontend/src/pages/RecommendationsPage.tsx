@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Recommendation {
   id: number;
@@ -15,7 +16,7 @@ export default function RecommendationsPage() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = API_BASE_URL;
   const token = localStorage.getItem('token');
 
   const authHeaders = {
