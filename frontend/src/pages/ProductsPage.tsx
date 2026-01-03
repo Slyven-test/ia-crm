@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Product {
   id: number;
@@ -13,7 +14,7 @@ interface Product {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = API_BASE_URL;
   const token = localStorage.getItem('token');
 
   const fetchProducts = async () => {

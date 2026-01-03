@@ -24,6 +24,13 @@ import pandas as pd
 from .config import get_tenant_paths
 
 
+def _tenant_value(tenant_id: str):
+    try:
+        return int(tenant_id)
+    except Exception:
+        return tenant_id
+
+
 def _normalize_text(value: str) -> str:
     """Return a lowercase, accent‑stripped version of the input string."""
     if not isinstance(value, str):
@@ -44,56 +51,80 @@ def _standardise_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _transform_clients(df: pd.DataFrame, tenant_id: str) -> pd.DataFrame:
+    df = _standardise_columns(df)
+    expected = ["client_code", "name", "email"]
+    for col in expected:
+        if col not in df.columns:
+            raise ValueError(f"Colonne requise manquante pour clients: {col}")
+    df = df[expected]
+    df["tenant_id"] = _tenant_value(tenant_id)
+    return df
+
+
+def _transform_products(df: pd.DataFrame, tenant_id: str) -> pd.DataFrame:
+    df = _standardise_columns(df)
+    expected = ["product_key", "name", "family_crm", "price_ttc"]
+    for col in ["product_key", "name"]:
+        if col not in df.columns:
+            raise ValueError(f"Colonne requise manquante pour produits: {col}")
+    for col in expected:
+        if col not in df.columns:
+            df[col] = None
+    df = df[expected]
+    df["tenant_id"] = _tenant_value(tenant_id)
+    return df
+
+
+def _transform_sales(df: pd.DataFrame, tenant_id: str) -> pd.DataFrame:
+    df = _standardise_columns(df)
+    if "document_id" not in df.columns:
+        doc_cols = [c for c in df.columns if "doc" in c or "facture" in c or "document" in c]
+        if doc_cols:
+            df["document_id"] = df[doc_cols[0]].astype(str)
+        else:
+            df["document_id"] = df.index.astype(str)
+    if "product_key" not in df.columns:
+        if "product_label" in df.columns:
+            df["product_key"] = df["product_label"].apply(_normalize_text)
+        else:
+            df["product_key"] = "unknown"
+    if "client_code" not in df.columns:
+        raise ValueError("Colonne client_code manquante pour sales")
+    df["tenant_id"] = _tenant_value(tenant_id)
+    if "sale_date" in df.columns:
+        df["sale_date"] = pd.to_datetime(df["sale_date"], errors="coerce")
+        df["sale_date"] = df["sale_date"].dt.strftime("%Y-%m-%d")
+    if "quantity" not in df.columns:
+        df["quantity"] = 1
+    if "amount" not in df.columns:
+        df["amount"] = None
+    if "sale_date" not in df.columns:
+        df["sale_date"] = None
+    df = df[
+        ["document_id", "product_key", "client_code", "quantity", "amount", "sale_date", "tenant_id"]
+    ]
+    df = df.drop_duplicates(subset=["document_id", "product_key"], keep="first")
+    return df
+
+
 def transform_sales_file(tenant_id: str, staging_file: Path) -> Path:
-    """Transform a single staging CSV file into a curated CSV.
-
-    Args:
-        tenant_id: Identifier of the tenant owning this file.
-        staging_file: Path to the CSV file in staging.
-
-    Returns:
-        Path to the curated CSV file written to disk.
-    """
+    """Transform a single staging CSV file into a curated CSV."""
     _, _, curated_dir = get_tenant_paths(tenant_id)
     df = pd.read_csv(staging_file)
-    # Standardise column names
-    df = _standardise_columns(df)
-    # Insert tenant_id
-    df["tenant_id"] = tenant_id
-    # Normalise known columns if they exist
-    if "client" in df.columns:
-        df["client"] = df["client"].astype(str).apply(_normalize_text)
-    if "client_code" in df.columns:
-        df["client_code"] = df["client_code"].astype(str).apply(_normalize_text)
-    # Derive document_id if fields exist
-    doc_cols = [c for c in df.columns if "doc" in c or "facture" in c or "document" in c]
-    if doc_cols:
-        base_col = doc_cols[0]
-        df["document_id"] = df[base_col].astype(str)
+    name = staging_file.name.lower()
+    if "client" in name:
+        transformed = _transform_clients(df, tenant_id)
+        dataset = "clients"
+    elif "product" in name:
+        transformed = _transform_products(df, tenant_id)
+        dataset = "products"
     else:
-        df["document_id"] = df.index.astype(str)
-    # Derive product_key from product or item columns
-    prod_cols = [c for c in df.columns if "produit" in c or "product" in c or "item" in c]
-    if prod_cols:
-        df["product_key"] = df[prod_cols[0]].astype(str).apply(_normalize_text)
-    else:
-        df["product_key"] = "unknown"
-    # Normalise dates
-    date_cols = [c for c in df.columns if "date" in c]
-    if date_cols:
-        def _parse_date(val):
-            try:
-                return pd.to_datetime(val, dayfirst=True).date()
-            except Exception:
-                return pd.NaT
-        for c in date_cols:
-            df[c] = df[c].apply(_parse_date)
-    # Drop duplicate rows based on document_id and product_key
-    df = df.drop_duplicates(subset=["document_id", "product_key"], keep="first")
-    # Write curated file
-    curated_name = staging_file.stem.replace("_", "-") + "_curated.csv"
+        transformed = _transform_sales(df, tenant_id)
+        dataset = "sales"
+    curated_name = f"{dataset}_{staging_file.stem}_curated.csv"
     curated_path = curated_dir / curated_name
-    df.to_csv(curated_path, index=False)
+    transformed.to_csv(curated_path, index=False)
     return curated_path
 
 
