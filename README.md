@@ -74,6 +74,16 @@ docker compose up --build
 Le backend est exposé sur le port 8000 et le frontend sur le port 3000. Le `PYTHONPATH`
 est configuré automatiquement dans les services pour rendre le module `etl` disponible.
 
+#### Test de fumée API (local, sans Docker)
+
+Pour vérifier rapidement que l’API répond :
+
+```bash
+./scripts/api_smoke.sh
+```
+
+Le script démarre uvicorn quelques secondes, appelle `/health`, puis arrête le serveur.
+
 #### Test de fumée Docker Compose
 
 Pour vérifier rapidement qu’un environnement Docker fonctionne (build + santé + endpoints clés), exécutez :

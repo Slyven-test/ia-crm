@@ -8,6 +8,7 @@ expose également un endpoint racine pour vérifier que l’API est opérationne
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 
@@ -29,7 +30,6 @@ from .routers import (
     sales,
     profiles,
     system,
-    etl,
     export,
     contacts,
     reco_runs,
@@ -37,7 +37,6 @@ from .routers import (
     clusters,
     aliases,
     reco_pipeline,
-    brevo,
 )
 
 
@@ -82,7 +81,6 @@ def create_app() -> FastAPI:
     app.include_router(profiles.router)
     app.include_router(system.router)
     # Router pour les opérations ETL
-    app.include_router(etl.router)
     # Router pour l'export de données
     app.include_router(export.router)
     # Router pour les événements de contact
@@ -102,8 +100,20 @@ def create_app() -> FastAPI:
     app.include_router(aliases.router)
     # Pipeline reco/audit/export
     app.include_router(reco_pipeline.router)
-    # Intégration Brevo (dry-run par défaut)
-    app.include_router(brevo.router)
+
+    def _include_optional(module_path: str, label: str) -> None:
+        """Inclut un routeur optionnel sans casser le démarrage si le module manque."""
+        logger = logging.getLogger(__name__)
+        try:
+            module = importlib.import_module(module_path)
+            router = getattr(module, "router")
+            app.include_router(router)
+        except Exception as exc:  # pragma: no cover - import errors only
+            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
+
+    # Routers optionnels : ETL et Brevo peuvent manquer selon l'environnement
+    _include_optional("backend.app.routers.etl", "etl")
+    _include_optional("backend.app.routers.brevo", "brevo")
 
     @app.get("/")
     def read_root():
