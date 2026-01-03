@@ -14,12 +14,16 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://user:password@localhost:5432/ia_crm")
+DATABASE_URL = os.getenv("DATABASE_URL")
+# Fallback SQLite en développement si aucune URL n'est fournie
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./ia_crm_dev.db"
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-)
+engine_kwargs = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

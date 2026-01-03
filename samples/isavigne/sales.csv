@@ -1,0 +1,6 @@
+"document_id","product_label","product_key","client_code","quantity","amount","sale_date"
+"INV-900","Pinot noir","P100","C100",3,45.0,"2099-01-10"
+"INV-901","RIESLING","P200","C200",2,24.0,"2099-01-11"
+"INV-902","Pinot noir","P100","C300",1,15.5,"2099-01-12"
+"INV-999","Riesling","P200","C100",1,12.0,"2099-01-13"
+"INV-999","Riesling","P200","C100",1,12.0,"2099-01-14"

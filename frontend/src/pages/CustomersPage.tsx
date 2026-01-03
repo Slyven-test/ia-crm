@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Client {
   id: number;
@@ -23,7 +24,7 @@ interface Client {
 export default function CustomersPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = API_BASE_URL;
   const token = localStorage.getItem('token');
 
   const fetchClients = async () => {
