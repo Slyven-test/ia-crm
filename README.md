@@ -74,6 +74,20 @@ docker compose up --build
 Le backend est exposé sur le port 8000 et le frontend sur le port 3000. Le `PYTHONPATH`
 est configuré automatiquement dans les services pour rendre le module `etl` disponible.
 
+#### Test de fumée Docker Compose
+
+Pour vérifier rapidement qu’un environnement Docker fonctionne (build + santé + endpoints clés), exécutez :
+
+```bash
+./scripts/compose_smoke.sh
+```
+
+Le script :
+1. construit les images et démarre la stack en tâche de fond ;
+2. attend que Postgres, le backend et le frontend passent en `healthy` ;
+3. appelle `/health`, `/docs` et la page d’accueil du frontend ;
+4. arrête et supprime les ressources créées (`docker compose down -v`).
+
 ## Parcours opérationnel (ingestion → reco → QC → export)
 
 1. **Ingestion** : déposez vos CSV dans `data/<tenant>/raw/` puis lancez l’ingestion ou utilisez les exemples `samples/isavigne`. Le script `etl/ingest_runner.py` écrit les versions staging/curated et produit un rapport dans `data/<tenant>/runs/<run_id>/report.json`.
