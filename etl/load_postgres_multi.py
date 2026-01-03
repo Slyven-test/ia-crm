@@ -35,6 +35,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
+import os
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -114,7 +115,12 @@ def load_table_with_tenant(
         logger.info(f"   Source: {csv_file}")
 
         # Charger le CSV
-        df = pd.read_csv(csv_file)
+        chunk_size_env = int(os.getenv("ETL_CHUNK_SIZE", "0"))
+        if chunk_size_env > 0:
+            chunks = pd.read_csv(csv_file, chunksize=chunk_size_env)
+            df = pd.concat(chunks, ignore_index=True)
+        else:
+            df = pd.read_csv(csv_file)
         initial_rows = len(df)
         logger.info(f"   Chargé: {initial_rows} lignes brutes")
 

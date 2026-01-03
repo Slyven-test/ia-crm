@@ -58,7 +58,7 @@ def login_for_access_token(
         raise HTTPException(status_code=400, detail="Nom d’utilisateur ou mot de passe incorrect")
     token_data = {"sub": str(user.id), "tenant_id": user.tenant_id}
     access_token = auth_service.create_access_token(data=token_data)
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "expires_in": auth_service.ACCESS_TOKEN_EXPIRE_MINUTES * 60}
 
 
 def get_current_user(
@@ -69,7 +69,11 @@ def get_current_user(
         payload = auth_service.decode_token(token)
         user_id: int = int(payload.get("sub"))
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token invalide")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invalide ou expiré",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")

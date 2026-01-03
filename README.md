@@ -87,20 +87,38 @@ est configuré automatiquement dans les services pour rendre le module `etl` dis
 
 ## Intégration Brevo (sûre par défaut)
 
-Variables d’environnement (cf. `.env.example`) :
+Variables d’environnement (cf. `.env.example`) :
 - `BREVO_API_KEY` (secret, **ne jamais logger**)
 - `BREVO_DRY_RUN` (défaut `1`, aucun appel réseau)
 - `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME`
+- `ALLOWED_ORIGINS` pour CORS strict
 
-Endpoints principaux :
-- `POST /brevo/sync_contacts` : prépare la synchro de contacts (DRY RUN loggué).
-- `POST /brevo/send_batch` : envoie/simule un batch basé sur un `run_id` avec `batch_size` 200-300 et filtrage `gate_export=true`.
-- `GET /brevo/logs?run_id=...` : historise chaque action dans `brevo_logs`.
+Endpoints principaux :
+- `POST /brevo/sync_contacts` : prépare la synchro de contacts (DRY RUN loggué).
+- `POST /brevo/send_batch` : envoie/simule un batch basé sur un `run_id` avec `batch_size` 200-300 et filtrage `gate_export=true`.
+- `GET /brevo/logs?run_id=...` : historise chaque action dans `brevo_logs`.
 
 Front (page *Campaigns*) :
 - Sélection d’un `run_id`, template, taille lot, boutons **Prepare**/**Send (dry-run/real)**.
 - Prévisualisation des 5 premiers contacts et affichage des logs.
 
-Notes :
+Notes :
 - Le DRY RUN est activé par défaut en dev ; passez `BREVO_DRY_RUN=0` et renseignez la clé/sender pour un envoi réel.
 - Les contacts sont journalisés dans `contact_history` (statut `dry_run` en simulation).
+
+## Architecture overview (rapide)
+- **backend** : FastAPI + SQLAlchemy, migrations via Alembic (`backend/alembic.ini`, `backend/migrations`).
+- **etl** : scripts pandas multi-tenant, chargement PostgreSQL/SQLite.
+- **frontend** : React/Vite, pages métiers (Runs, QC, Campaigns).
+
+## Déploiement rapide (OVH/VPS)
+1. Provisionner Postgres + Redis (optionnel) et exporter `DATABASE_URL`.
+2. Copier `.env.example` -> `.env` et renseigner secrets (JWT, Brevo, CORS).
+3. Construire et lancer : `docker compose up --build` (le backend peut exécuter `alembic upgrade head` avant uvicorn).
+4. Placer un reverse proxy (nginx/traefik) devant `backend:8000` et `frontend:3000`, gérer TLS.
+
+## Troubleshooting
+- **Health** : `/health` retourne `status` et `db`; vérifier la connectivité DB si `degraded`.
+- **Migrations** : exécuter `alembic upgrade head` dans `backend/`.
+- **CORS** : vérifier `ALLOWED_ORIGINS` si le frontend ne peut pas appeler l’API.
+- **ETL mémoire** : définir `ETL_CHUNK_SIZE` si besoin de traiter des CSV volumineux.

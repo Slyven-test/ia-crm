@@ -8,6 +8,7 @@ expose également un endpoint racine pour vérifier que l’API est opérationne
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import FastAPI
@@ -43,6 +44,11 @@ from .routers import (
 def create_app() -> FastAPI:
     app = FastAPI(title="ia-crm", version="0.1.0")
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     # Créer les tables en base si nécessaire
     Base.metadata.create_all(bind=engine)
     if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
@@ -53,9 +59,10 @@ def create_app() -> FastAPI:
             db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # en production, restreindre aux domaines autorisés
+        allow_origins=[o.strip() for o in allowed_origins if o.strip()],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
