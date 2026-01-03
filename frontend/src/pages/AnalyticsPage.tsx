@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Overview {
   total_clients: number;
@@ -24,7 +25,7 @@ interface Outcomes {
 }
 
 export default function AnalyticsPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
+  const apiUrl = API_BASE_URL;
   const token = localStorage.getItem('token');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
