@@ -402,6 +402,28 @@ def generate_recommendations_run(
                     tenant_id=tenant_id,
                 )
             )
+            )
+
+        issues, audit_score, is_eligible, reason = audit_client(
+            client,
+            recos,
+            product_map,
+            contacts_by_client.get(client.id, []),
+            purchases,
+            silence_window_days=silence_window_days,
+        )
+        for issue in issues:
+            audit_issues_counter[issue["rule_code"]] += 1
+            db.add(
+                AuditOutput(
+                    run_id=run.run_id,
+                    customer_code=client.client_code,
+                    severity=issue["severity"],
+                    rule_code=issue["rule_code"],
+                    details_json=json.dumps(issue.get("details", {})),
+                    tenant_id=tenant_id,
+                )
+            )
         db.add(
             NextActionOutput(
                 run_id=run.run_id,
@@ -438,6 +460,7 @@ def generate_recommendations_run(
         "n_warns": total_warns,
         "audit_score": run_audit_score,
         "gate_export": gate_export,
+        "gate_export": eligible == len(clients),
     }
     db.add(RunSummary(run_id=run.run_id, summary_json=json.dumps(summary), tenant_id=tenant_id))
     db.commit()

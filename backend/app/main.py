@@ -88,6 +88,9 @@ def create_app() -> FastAPI:
         if strict_startup:
             raise
     if db_ready and os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
+    # Créer les tables en base si nécessaire
+    Base.metadata.create_all(bind=engine)
+    if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
         db = SessionLocal()
         try:
             seed_demo_data(db)
@@ -97,6 +100,7 @@ def create_app() -> FastAPI:
     # Configurer CORS pour permettre les appels depuis le frontend
     origin_env = os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS")
     allowed_origins = (origin_env or "http://localhost:3000").split(",")
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in allowed_origins if o.strip()],
