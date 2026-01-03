@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 try:
@@ -44,7 +44,10 @@ except ImportError as exc:
     )
 
 
-router = APIRouter(prefix="/etl", tags=["ETL"])
+from .auth import get_current_user
+
+
+router = APIRouter(prefix="/etl", tags=["ETL"], dependencies=[Depends(get_current_user)])
 
 
 class ETLRequest(BaseModel):

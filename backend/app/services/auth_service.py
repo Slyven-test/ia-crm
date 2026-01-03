@@ -17,8 +17,8 @@ from passlib.context import CryptContext
 
 # Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key-change-me")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+ALGORITHM = os.getenv("JWT_ALGO", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = max(5, min(int(os.getenv("JWT_EXPIRE_MINUTES", "60")), 1440))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
