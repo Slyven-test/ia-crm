@@ -12,6 +12,7 @@ export default function ClustersPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<string | null>(null);
   const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
 
   const authHeaders = {
