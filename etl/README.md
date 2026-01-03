@@ -39,4 +39,14 @@ Vous pouvez configurer le chemin racine des données et la connexion à PostgreS
 - `DATA_DIR`: chemin vers le répertoire contenant les sous‑dossiers `raw`, `staging` et `curated` de chaque tenant (défaut : `ia-crm/data`).
 - `DATABASE_URL`: URL de connexion PostgreSQL (défaut : `postgresql+psycopg2://postgres:postgres@localhost:5432/ia_crm`).
 
+### Jeu de données de démo
+
+Pour charger un petit dataset d’exemple (tenant `demo`) dans une base SQLite locale :
+
+```bash
+DATABASE_URL=sqlite:///./data/demo.db python -m etl.demo
+```
+
+Le script crée automatiquement les dossiers de données, copie les CSV de démonstration et exécute l’orchestration complète.
+
 Consultez la documentation des modules pour plus de détails sur leur fonctionnement interne.

@@ -48,14 +48,17 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 
    ```bash
    cd backend
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt  # inclut l'installation editable de l'ETL
    ```
 
 2. Configurez les variables d’environnement :
 
-   - `DATABASE_URL`: URL de connexion PostgreSQL (par ex. `postgresql+psycopg2://user:pass@localhost:5432/ia_crm`)
+   - `DATABASE_URL`: URL de connexion PostgreSQL (par ex. `postgresql+psycopg2://user:pass@localhost:5432/ia_crm`). Si non défini en développement, l’API bascule automatiquement sur SQLite (`sqlite:///./ia_crm_dev.db`).
    - `JWT_SECRET_KEY`: clé secrète utilisée pour signer les tokens JWT
    - `BREVO_API_KEY` (optionnel) : clé API pour l’intégration Brevo
+   - `ENABLE_DEMO_DATA`: si vrai, crée un tenant + utilisateur `demo/demo` et quelques données
+   - `DB_STRICT_STARTUP`: si vrai (`1/true`), échoue immédiatement si la base définie par `DATABASE_URL` est inaccessible (par défaut, l’API démarre en loggant un avertissement)
+   - `DATA_DIR`: répertoire racine pour l’ETL (défaut : `./data`)
 
    Vous pouvez créer un fichier `.env` à la racine du projet et utiliser
    `python-dotenv` pour charger ces variables automatiquement.
@@ -63,8 +66,17 @@ produits, les ventes, les recommandations et les campagnes e‑mail.
 3. Lancez le serveur en développement :
 
    ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   # Assurez-vous que le dossier racine (qui contient `etl/`) est sur le PYTHONPATH
+   ENABLE_DEMO_DATA=1 PYTHONPATH=.. uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
+
+   En mode Docker, `docker-compose up --build` utilise désormais le contexte racine et
+   définit automatiquement `PYTHONPATH=/app:/app/etl` afin de rendre le module `etl`
+   disponible pour les routes correspondantes.
+
+4. Données de démo : exécutez `python -m etl.demo` (avec `DATABASE_URL` pointant vers
+   votre base) pour charger un petit jeu d'essai. Un utilisateur `demo`/`demo` est créé
+   si `ENABLE_DEMO_DATA` est activé.
 
 ## Points d’extension
 
