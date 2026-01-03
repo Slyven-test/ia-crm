@@ -161,8 +161,15 @@ def create_app() -> FastAPI:
     # (re-déclaré ici pour plus de clarté et pour éviter l'oubli dans la liste)
     app.include_router(export.router)
 
-    # Router pour les clusters
-    app.include_router(clusters.router)
+    def _include_optional(module_path: str, label: str, prefix: str = "", include_in_schema: bool = True) -> None:
+        """Inclut un routeur optionnel sans casser le démarrage si le module manque."""
+        logger = logging.getLogger(__name__)
+        try:
+            module = importlib.import_module(module_path)
+            router = getattr(module, "router")
+            app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
+        except Exception as exc:  # pragma: no cover - import errors only
+            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
 
     # Router pour les alias produits
     app.include_router(aliases.router)
