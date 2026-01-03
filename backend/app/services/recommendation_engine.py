@@ -327,6 +327,8 @@ def generate_recommendations_run(
 
     scenario_counts: Counter = Counter()
     audit_issues_counter: Counter = Counter()
+    total_errors = 0
+    total_warns = 0
     eligible = 0
     rec_output_rows: List[RecoOutput] = []
     rec_items: List[RecoItem] = []
@@ -385,6 +387,32 @@ def generate_recommendations_run(
             silence_window_days=silence_window_days,
         )
         for issue in issues:
+            if issue.get("severity") == "ERROR":
+                total_errors += 1
+            else:
+                total_warns += 1
+            audit_issues_counter[issue["rule_code"]] += 1
+            db.add(
+                AuditOutput(
+                    run_id=run.run_id,
+                    customer_code=client.client_code,
+                    severity=issue["severity"],
+                    rule_code=issue["rule_code"],
+                    details_json=json.dumps(issue.get("details", {})),
+                    tenant_id=tenant_id,
+                )
+            )
+            )
+
+        issues, audit_score, is_eligible, reason = audit_client(
+            client,
+            recos,
+            product_map,
+            contacts_by_client.get(client.id, []),
+            purchases,
+            silence_window_days=silence_window_days,
+        )
+        for issue in issues:
             audit_issues_counter[issue["rule_code"]] += 1
             db.add(
                 AuditOutput(
@@ -419,12 +447,19 @@ def generate_recommendations_run(
     run.status = "completed"
     run.dataset_version = str(len(sales))
 
+    run_audit_score = max(0.0, 100.0 - 40 * total_errors - 10 * total_warns)
+    gate_export = total_errors == 0 and run_audit_score >= 80
+
     summary = {
         "gating_rate": eligible / max(1, len(clients)),
         "total_clients": len(clients),
         "total_recommendations": len(rec_output_rows),
         "scenario_counts": dict(scenario_counts),
         "top_errors": audit_issues_counter.most_common(3),
+        "n_errors": total_errors,
+        "n_warns": total_warns,
+        "audit_score": run_audit_score,
+        "gate_export": gate_export,
         "gate_export": eligible == len(clients),
     }
     db.add(RunSummary(run_id=run.run_id, summary_json=json.dumps(summary), tenant_id=tenant_id))
