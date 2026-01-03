@@ -11,6 +11,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import unicodedata
+import re
+from difflib import get_close_matches
 
 from ..database import get_db
 from ..models import User, Product, ProductAlias
@@ -18,6 +21,14 @@ from ..routers.auth import get_current_user
 from .. import schemas
 
 router = APIRouter(prefix="/aliases", tags=["aliases"])
+
+
+def normalize_label(label: str) -> str:
+    label = label.strip().lower()
+    label = "".join(ch for ch in unicodedata.normalize("NFD", label) if unicodedata.category(ch) != "Mn")
+    label = re.sub(r"[^a-z0-9\s]", " ", label)
+    label = re.sub(r"\s+", " ", label).strip()
+    return label
 
 
 @router.get("/", response_model=list[schemas.ProductAliasRead])
@@ -67,8 +78,11 @@ def create_alias(
     if exists:
         raise HTTPException(status_code=400, detail="Alias already exists")
     alias = ProductAlias(
-        label_norm=alias_in.label_norm,
+        label_raw=alias_in.label_raw or alias_in.label_norm,
+        label_norm=normalize_label(alias_in.label_norm),
         product_key=alias_in.product_key,
+        confidence=alias_in.confidence or 1.0,
+        source=alias_in.source or "manual",
         tenant_id=current_user.tenant_id,
     )
     db.add(alias)
@@ -102,14 +116,15 @@ def update_alias(
             db.query(ProductAlias)
             .filter(
                 ProductAlias.tenant_id == current_user.tenant_id,
-                ProductAlias.label_norm == alias_update.label_norm,
+                ProductAlias.label_norm == normalize_label(alias_update.label_norm),
                 ProductAlias.id != alias_id,
             )
             .first()
         )
         if other:
             raise HTTPException(status_code=400, detail="Another alias with this label already exists")
-        alias.label_norm = alias_update.label_norm
+        alias.label_norm = normalize_label(alias_update.label_norm)
+        alias.label_raw = alias_update.label_raw or alias_update.label_norm
     if alias_update.product_key:
         prod = (
             db.query(Product)
@@ -119,6 +134,10 @@ def update_alias(
         if not prod:
             raise HTTPException(status_code=404, detail="Product not found")
         alias.product_key = alias_update.product_key
+    if alias_update.confidence is not None:
+        alias.confidence = alias_update.confidence
+    if alias_update.source is not None:
+        alias.source = alias_update.source
     db.commit()
     db.refresh(alias)
     return alias
@@ -141,3 +160,35 @@ def delete_alias(
     db.delete(alias)
     db.commit()
     return {"message": "Alias deleted"}
+
+
+@router.post("/suggest", response_model=list[schemas.ProductAliasBase])
+def suggest_aliases(
+    label: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[schemas.ProductAliasBase]:
+    """Suggest mappings for a raw label based on existing products."""
+    label_norm = normalize_label(label)
+    products = (
+        db.query(Product)
+        .filter(Product.tenant_id == current_user.tenant_id)
+        .all()
+    )
+    product_keys = {p.product_key: normalize_label(p.name) for p in products}
+    matches = get_close_matches(label_norm, product_keys.values(), n=5, cutoff=0.5)
+    suggestions: list[schemas.ProductAliasBase] = []
+    for match in matches:
+        for key, norm in product_keys.items():
+            if norm == match:
+                suggestions.append(
+                    schemas.ProductAliasBase(
+                        label_raw=label,
+                        label_norm=label_norm,
+                        product_key=key,
+                        confidence=0.8,
+                        source="suggest",
+                        tenant_id=current_user.tenant_id,
+                    )
+                )
+    return suggestions
