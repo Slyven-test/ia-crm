@@ -299,8 +299,7 @@ class RunSummaryRead(BaseModel):
     summary_json: Optional[str] = None
     tenant_id: int
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecoRunRead(RecoRunBase):
