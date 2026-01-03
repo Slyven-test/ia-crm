@@ -14,6 +14,18 @@ interface BrevoLog {
   payload_redacted?: string;
 }
 
+interface RunOption {
+  run_id: string;
+}
+
+interface BrevoLog {
+  id: number;
+  action: string;
+  status: string;
+  created_at?: string;
+  payload_redacted?: string;
+}
+
 export default function CampaignsPage() {
   const [runs, setRuns] = useState<RunOption[]>([]);
   const [runId, setRunId] = useState('');
@@ -23,6 +35,7 @@ export default function CampaignsPage() {
   const [preview, setPreview] = useState<any[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 

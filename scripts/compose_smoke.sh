@@ -6,8 +6,8 @@ COMPOSE_FILE="${COMPOSE_FILE:-${ROOT_DIR}/docker-compose.yml}"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ia-crm-smoke}"
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "SKIP: Docker not installed; skipping compose smoke." >&2
-  exit 0
+  echo "Docker is required to run this script" >&2
+  exit 1
 fi
 
 COMPOSE=(docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME")

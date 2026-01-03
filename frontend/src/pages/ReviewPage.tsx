@@ -16,7 +16,7 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
 
   const authHeaders = {

@@ -7,7 +7,7 @@ interface Distribution {
 }
 
 export default function RfmPage() {
-  const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [distribution, setDistribution] = useState<Distribution>({});
   const [loading, setLoading] = useState<boolean>(false);

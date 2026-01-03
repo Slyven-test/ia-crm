@@ -13,10 +13,10 @@ import logging
 import os
 import uuid
 from datetime import datetime
-import time
 from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Tuple, Protocol, runtime_checkable
+from typing import Dict, List, Tuple
 
-import httpx
 from sqlalchemy.orm import Session
 
 from ..models import BrevoLog, Client, ContactHistory, NextActionOutput, RunSummary
@@ -92,56 +92,6 @@ class DummyBrevoClient:
         return {"status": "noop"}
 
 
-class RealBrevoClient:
-    """Client Brevo réel, safe-by-default (aucune clé n'est loggée)."""
-
-    def __init__(
-        self,
-        api_key: str,
-        *,
-        base_url: str | None = None,
-        timeout: float = 10.0,
-        http_post: Any = None,
-    ) -> None:
-        self.api_key = api_key
-        self.base_url = (base_url or os.getenv("BREVO_BASE_URL") or "https://api.brevo.com/v3").rstrip("/")
-        self.timeout = timeout
-        self._http_post = http_post or httpx.post
-
-    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}/smtp/email"
-        data = {
-            "templateId": payload["template_id"],
-            "messageVersions": [
-                {
-                    "to": [{"email": c["email"], "name": c.get("name") or c["customer_code"]} for c in payload["contacts"]],
-                    "params": {
-                        "run_id": payload.get("run_id"),
-                        "batch_id": payload.get("batch_id"),
-                    },
-                }
-            ],
-        }
-        headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-
-        retries = 0
-        max_retries = 2
-        backoff = 1.5
-        while True:
-            resp = self._http_post(url, headers=headers, json=data, timeout=self.timeout)
-            if resp.status_code == 429 and retries < max_retries:
-                time.sleep(backoff * (retries + 1))
-                retries += 1
-                continue
-            if resp.status_code >= 400:
-                raise RuntimeError(f"Brevo API error {resp.status_code}: {getattr(resp, 'text', '')[:200]}")
-            try:
-                body = resp.json()
-            except Exception:  # pragma: no cover - defensive
-                body = {}
-            return {"status": "sent", "response": body}
-
-
 def sync_contacts(db: Session, tenant_id: int, force_dry_run: bool | None = None) -> Dict:
     """Prépare la synchro des contacts Brevo (DRY RUN par défaut)."""
     dry_run = _is_dry_run(force_dry_run)
@@ -183,6 +133,10 @@ def send_batch(
         .filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id)
         .first()
     )
+) -> Dict:
+    """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
+    dry_run = _is_dry_run(force_dry_run)
+    summary = db.query(RunSummary).filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id).first()
     summary_json = {}
     if summary and summary.summary_json:
         try:
@@ -229,16 +183,19 @@ def send_batch(
         action="send_batch",
         status=status,
         payload=payload,
+        payload={
+            "run_id": run_id,
+            "template_id": template_id,
+            "count": len(preview),
+            "batch_size": batch_size,
+        },
         run_id=run_id,
         batch_id=batch_id,
     )
     for c in preview:
         _record_contact_history(db, tenant_id, c["customer_code"], status=status, meta={"batch_id": batch_id})
     if not dry_run and not preview_only:
-        api_key = os.getenv("BREVO_API_KEY")
-        http_client = client
-        if http_client is None:
-            http_client = RealBrevoClient(api_key) if api_key else DummyBrevoClient(api_key)
+        http_client = client or DummyBrevoClient(os.getenv("BREVO_API_KEY"))
         http_client.send_batch(
             {
                 "template_id": template_id,
