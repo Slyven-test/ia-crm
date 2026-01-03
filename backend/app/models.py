@@ -265,6 +265,20 @@ class OrderItem(Base):
         return f"<OrderItem {self.product_id} x {self.quantity}>"
 
 
+class Campaign(Base):
+    __tablename__ = "campaigns"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    scheduled_at = Column(DateTime, nullable=True)
+    status = Column(String, default="draft")  # draft, scheduled, sent, etc.
+    template_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Campaign {self.name} ({self.status})>"
+
+
 class ContactEvent(Base):
     """
     Historique des contacts marketing avec les clients.
@@ -284,7 +298,6 @@ class ContactEvent(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     client = relationship("Client")
-    campaign = relationship("Campaign")
 
     def __repr__(self) -> str:
         return f"<ContactEvent {self.client_id} on {self.contact_date}>"
@@ -417,18 +430,41 @@ class RunSummary(Base):
     run = relationship("RecoRun", back_populates="summary")
 
 
-class Campaign(Base):
-    __tablename__ = "campaigns"
+class BrevoLog(Base):
+    """
+    Trace les actions Brevo (sync, batch send) en redigeant les payloads.
+    """
+
+    __tablename__ = "brevo_logs"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    scheduled_at = Column(DateTime, nullable=True)
-    status = Column(String, default="draft")  # draft, scheduled, sent, etc.
-    template_id = Column(String, nullable=True)
+    run_id = Column(String, nullable=True, index=True)
+    batch_id = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    payload_redacted = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending")
     created_at = Column(DateTime, default=dt.datetime.utcnow)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     def __repr__(self) -> str:
-        return f"<Campaign {self.name} ({self.status})>"
+        return f"<BrevoLog {self.action} {self.status}>"
+
+
+class ContactHistory(Base):
+    """
+    Historique des contacts envoyés au client (y compris DRY RUN).
+    """
+
+    __tablename__ = "contact_history"
+    id = Column(Integer, primary_key=True, index=True)
+    customer_code = Column(String, nullable=False, index=True)
+    last_contact_at = Column(DateTime, default=dt.datetime.utcnow)
+    channel = Column(String, nullable=True)
+    status = Column(String, nullable=True)
+    meta = Column(Text, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ContactHistory {self.customer_code} {self.status}>"
 
 
 class AuditLog(Base):

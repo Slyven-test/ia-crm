@@ -84,3 +84,23 @@ est configuré automatiquement dans les services pour rendre le module `etl` dis
    * `/export/runs/{run_id}/audit_output.csv`
    * `/export/runs/{run_id}/next_action_output.csv`
    * `/export/runs/{run_id}/run_summary.json`
+
+## Intégration Brevo (sûre par défaut)
+
+Variables d’environnement (cf. `.env.example`) :
+- `BREVO_API_KEY` (secret, **ne jamais logger**)
+- `BREVO_DRY_RUN` (défaut `1`, aucun appel réseau)
+- `BREVO_SENDER_EMAIL` / `BREVO_SENDER_NAME`
+
+Endpoints principaux :
+- `POST /brevo/sync_contacts` : prépare la synchro de contacts (DRY RUN loggué).
+- `POST /brevo/send_batch` : envoie/simule un batch basé sur un `run_id` avec `batch_size` 200-300 et filtrage `gate_export=true`.
+- `GET /brevo/logs?run_id=...` : historise chaque action dans `brevo_logs`.
+
+Front (page *Campaigns*) :
+- Sélection d’un `run_id`, template, taille lot, boutons **Prepare**/**Send (dry-run/real)**.
+- Prévisualisation des 5 premiers contacts et affichage des logs.
+
+Notes :
+- Le DRY RUN est activé par défaut en dev ; passez `BREVO_DRY_RUN=0` et renseignez la clé/sender pour un envoi réel.
+- Les contacts sont journalisés dans `contact_history` (statut `dry_run` en simulation).

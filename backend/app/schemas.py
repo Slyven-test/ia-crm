@@ -402,6 +402,33 @@ class RecoRunDetail(BaseModel):
     top_audit: list[AuditOutputRead] = []
 
 
+# --- Brevo ---
+
+class BrevoLogRead(BaseModel):
+    id: int
+    run_id: Optional[str] = None
+    batch_id: Optional[str] = None
+    action: str
+    payload_redacted: Optional[str] = None
+    status: str
+    created_at: Optional[dt.datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ContactHistoryRead(BaseModel):
+    id: int
+    customer_code: str
+    last_contact_at: dt.datetime
+    channel: Optional[str] = None
+    status: Optional[str] = None
+    meta: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
 # --- Recommendation ---
 
 class RecommendationBase(BaseModel):

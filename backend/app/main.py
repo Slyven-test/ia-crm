@@ -36,6 +36,7 @@ from .routers import (
     clusters,
     aliases,
     reco_pipeline,
+    brevo,
 )
 
 
@@ -94,6 +95,8 @@ def create_app() -> FastAPI:
     app.include_router(aliases.router)
     # Pipeline reco/audit/export
     app.include_router(reco_pipeline.router)
+    # Intégration Brevo (dry-run par défaut)
+    app.include_router(brevo.router)
 
     @app.get("/")
     def read_root():
