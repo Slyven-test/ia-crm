@@ -4,7 +4,7 @@ Routes d'API pour la gestion des produits.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -103,12 +103,16 @@ def get_product(
     return prod
 
 
-@router.delete("/{product_key}", status_code=204)
+@router.delete(
+    "/{product_key}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 def delete_product(
     product_key: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Supprime un produit pour le tenant courant.
 
     Cette action est irréversible et échouera si le produit n'existe
@@ -135,4 +139,4 @@ def delete_product(
         )
     db.delete(product)
     db.commit()
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

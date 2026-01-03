@@ -1,0 +1,4 @@
+"document_id","product_key","client_code","quantity","amount","sale_date"
+"INV-001","P001","C001",3,45.0,"2024-01-15"
+"INV-002","P002","C002",2,30.0,"2024-02-10"
+
