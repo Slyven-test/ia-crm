@@ -27,17 +27,6 @@ curl -f http://localhost/health
 curl -f http://localhost/api/health
 ```
 
-## Plan de sauvegarde / tâches programmées
-- Backup Postgres quotidien (ex. 02:15) via cron :
-  `15 2 * * * BACKUP_DIR=/var/backups/ia-crm /opt/ia-crm/scripts/backup_postgres.sh >> /var/log/ia-crm-backup.log 2>&1`
-- Pipeline hebdomadaire (ex. dimanche 03:15) :
-  `15 3 * * 0 docker compose -f /opt/ia-crm/docker-compose.prod.yml exec backend python -m backend.app.cli.run_pipeline >> /var/log/ia-crm-pipeline.log 2>&1`
-
-## Checklist sécurité
-- Accès SSH par clés uniquement, mots de passe désactivés.
-- Secrets forts dans `.env.prod` (JWT, Brevo, DB); rotation régulière.
-- Aucun service interne (5432, 6379, 8000) exposé publiquement ; seuls 22/80/443 ouverts.
-
 ## Notes sécurité
 - Caddy est le seul service exposant 80/443. Le backend, Redis et Postgres ne doivent **jamais** être bindés publiquement.
 - Activez des mots de passe forts pour la base et conservez les secrets `.env.prod` hors VCS.

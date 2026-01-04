@@ -45,6 +45,7 @@ interface RunDetail {
 }
 
 export default function RecoRunsPage() {
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
@@ -57,7 +58,7 @@ export default function RecoRunsPage() {
 
   const fetchRuns = async () => {
     try {
-      const resp = await axios.get(`${API_BASE_URL}/reco/runs`, { headers: authHeader });
+      const resp = await axios.get(`${apiUrl}/reco/runs`, { headers: authHeader });
       setRuns(resp.data);
     } catch (err) {
       console.error(err);
@@ -71,7 +72,7 @@ export default function RecoRunsPage() {
   const loadRunDetail = async (runId: string) => {
     try {
       setLoadingRun(true);
-      const resp = await axios.get<RunDetail>(`${API_BASE_URL}/reco/runs/${runId}`, { headers: authHeader });
+      const resp = await axios.get<RunDetail>(`${apiUrl}/reco/runs/${runId}`, { headers: authHeader });
       setSelectedRun(resp.data);
     } catch (err) {
       console.error(err);
@@ -85,7 +86,7 @@ export default function RecoRunsPage() {
     try {
       setCreatingRun(true);
       const resp = await axios.post<RunDetail>(
-        `${API_BASE_URL}/reco/run?top_n=${topN}&silence_window_days=${silenceWindow}`,
+        `${apiUrl}/reco/run?top_n=${topN}&silence_window_days=${silenceWindow}`,
         {},
         { headers: authHeader }
       );
@@ -111,7 +112,7 @@ export default function RecoRunsPage() {
 
   const downloadExport = async (runId: string, kind: 'reco_output' | 'audit_output' | 'next_action_output' | 'run_summary') => {
     const endpoint = kind === 'run_summary' ? `run_summary.json` : `${kind}.csv`;
-    const url = `${API_BASE_URL}/export/runs/${runId}/${endpoint}`;
+    const url = `${apiUrl}/export/runs/${runId}/${endpoint}`;
     const resp = await axios.get(url, { headers: authHeader, responseType: 'blob' });
     const blob = new Blob([resp.data]);
     const link = document.createElement('a');
