@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Distribution {
   [segment: string]: number;
 }
 
 export default function RfmPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
   const [distribution, setDistribution] = useState<Distribution>({});
   const [loading, setLoading] = useState<boolean>(false);
@@ -14,7 +14,7 @@ export default function RfmPage() {
 
   const fetchDistribution = async () => {
     try {
-      const res = await axios.get(`${apiUrl}/rfm/distribution`, {
+      const res = await axios.get(`${API_BASE_URL}/rfm/distribution`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDistribution(res.data);
@@ -33,7 +33,7 @@ export default function RfmPage() {
     setMessage('');
     try {
       const res = await axios.post(
-        `${apiUrl}/rfm/run`,
+        `${API_BASE_URL}/rfm/run`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );

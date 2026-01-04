@@ -1,103 +1,311 @@
 """
-Service d’intégration Brevo (Sendinblue) — **version simplifiée**.
+Service d’intégration Brevo (Sendinblue) — priorise le DRY RUN et la sécurité.
 
-Ce module définit une interface pour envoyer des e‑mails via l’API de Brevo.
-Afin de conserver ce dépôt fonctionnel sans dépendance externe, la fonction
-``send_email`` se contente d’écrire un log avec le contenu de l’e‑mail.
-
-Pour utiliser Brevo en production :
- 1. Récupérez votre clé API Brevo et définissez `BREVO_API_KEY` dans votre fichier `.env`.
- 2. Décommentez les parties commentées et installez la bibliothèque
-    correspondante (par exemple `brevo` ou `sendinblue`) via pip.
- 3. Gérez les erreurs de l’API (limites, erreurs réseau, etc.).
+Toutes les opérations loggent un payload redacted dans ``brevo_logs`` et ne
+tentent pas d’appel réseau si ``BREVO_DRY_RUN`` vaut ``1`` (défaut) ou si la
+clé API est absente. Aucune clé n’est jamais journalisée.
 """
 
 from __future__ import annotations
 
-import os
-from typing import List, Dict
+import json
 import logging
+import os
+import uuid
 from datetime import datetime
+import time
+from typing import Any, Dict, List, Protocol, runtime_checkable
+
+import httpx
+from sqlalchemy.orm import Session
+
+from ..models import BrevoLog, Client, ContactHistory, NextActionOutput, RunSummary
 
 logger = logging.getLogger(__name__)
 
-# Exemple de fonction d’envoi d’un e‑mail. En production, utilisez l’API Brevo.
+
+def _is_dry_run(force_dry_run: bool | None = None) -> bool:
+    if force_dry_run is not None:
+        return force_dry_run
+    return os.getenv("BREVO_DRY_RUN", "1").lower() in {"1", "true", "yes", "on"}
+
+
+def _log_action(
+    db: Session,
+    tenant_id: int,
+    action: str,
+    status: str,
+    payload: Dict | None = None,
+    run_id: str | None = None,
+    batch_id: str | None = None,
+) -> BrevoLog:
+    log = BrevoLog(
+        run_id=run_id,
+        batch_id=batch_id,
+        action=action,
+        status=status,
+        payload_redacted=json.dumps(payload or {}),
+        tenant_id=tenant_id,
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+def _record_contact_history(
+    db: Session,
+    tenant_id: int,
+    customer_code: str,
+    status: str,
+    channel: str = "email",
+    meta: Dict | None = None,
+) -> None:
+    history = ContactHistory(
+        customer_code=customer_code,
+        last_contact_at=datetime.utcnow(),
+        channel=channel,
+        status=status,
+        meta=json.dumps(meta or {}),
+        tenant_id=tenant_id,
+    )
+    db.add(history)
+    db.commit()
+
+
+@runtime_checkable
+class BrevoClient(Protocol):
+    """Client HTTP minimal pour Brevo."""
+
+    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]: ...
+
+
+class DummyBrevoClient:
+    """Implémentation neutre qui n'effectue aucun appel réseau."""
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key
+        self.calls: List[Dict[str, Any]] = []
+
+    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        self.calls.append(payload)
+        return {"status": "noop"}
+
+
+class RealBrevoClient:
+    """Client Brevo réel, safe-by-default (aucune clé n'est loggée)."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str | None = None,
+        timeout: float = 10.0,
+        http_post: Any = None,
+    ) -> None:
+        self.api_key = api_key
+        self.base_url = (base_url or os.getenv("BREVO_BASE_URL") or "https://api.brevo.com/v3").rstrip("/")
+        self.timeout = timeout
+        self._http_post = http_post or httpx.post
+
+    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.base_url}/smtp/email"
+        contacts: List[Dict[str, Any]] = payload.get("contacts", [])
+        max_versions = max(1, int(os.getenv("BREVO_MAX_MESSAGE_VERSIONS", "100") or 100))
+        headers = {"api-key": self.api_key, "Content-Type": "application/json"}
+
+        def _build_versions(chunk: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            versions: List[Dict[str, Any]] = []
+            for c in chunk:
+                versions.append(
+                    {
+                        "to": [{"email": c["email"], "name": c.get("name") or c["customer_code"]}],
+                        "params": {
+                            "run_id": payload.get("run_id"),
+                            "batch_id": payload.get("batch_id"),
+                            "customer_code": c.get("customer_code"),
+                        },
+                    }
+                )
+            return versions
+
+        api_calls = 0
+        responses: List[Dict[str, Any]] = []
+        for i in range(0, len(contacts), max_versions):
+            chunk = contacts[i : i + max_versions]
+            data = {
+                "templateId": payload["template_id"],
+                "messageVersions": _build_versions(chunk),
+            }
+            retries = 0
+            max_retries = 2
+            backoff = 1.5
+            while True:
+                resp = self._http_post(url, headers=headers, json=data, timeout=self.timeout)
+                if resp.status_code == 429 and retries < max_retries:
+                    time.sleep(backoff * (retries + 1))
+                    retries += 1
+                    continue
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"Brevo API error {resp.status_code}: {getattr(resp, 'text', '')[:200]}")
+                try:
+                    body = resp.json()
+                except Exception:  # pragma: no cover - defensive
+                    body = {}
+                api_calls += 1
+                responses.append(body)
+                break
+
+        return {"status": "sent", "api_calls": api_calls, "responses": responses}
+
+
+def sync_contacts(db: Session, tenant_id: int, force_dry_run: bool | None = None) -> Dict:
+    """Prépare la synchro des contacts Brevo (DRY RUN par défaut)."""
+    dry_run = _is_dry_run(force_dry_run)
+    clients = db.query(Client).filter(Client.tenant_id == tenant_id).all()
+    exported = [
+        {"email": c.email, "customer_code": c.client_code, "name": c.name}
+        for c in clients
+        if c.email
+    ]
+    batch_id = uuid.uuid4().hex
+    status = "dry_run" if dry_run else "ready"
+    _log_action(
+        db,
+        tenant_id,
+        action="sync_contacts",
+        status=status,
+        payload={"count": len(exported)},
+        batch_id=batch_id,
+    )
+    return {"synced": len(exported), "dry_run": dry_run, "batch_id": batch_id, "preview": exported[:5]}
+
+
+def send_batch(
+    db: Session,
+    tenant_id: int,
+    run_id: str,
+    template_id: str,
+    batch_size: int,
+    force_dry_run: bool | None = None,
+    preview_only: bool = False,
+    client: BrevoClient | None = None,
+    allowed_customer_codes: list[str] | None = None,
+) -> Dict:
+    """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
+    if batch_size < 200 or batch_size > 300:
+        raise ValueError("batch_size must be between 200 and 300")
+    dry_run = _is_dry_run(force_dry_run)
+    summary = (
+        db.query(RunSummary)
+        .filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id)
+        .first()
+    )
+    summary_json = {}
+    if summary and summary.summary_json:
+        try:
+            summary_json = json.loads(summary.summary_json)
+        except Exception:
+            summary_json = {}
+    if not summary_json.get("gate_export", False):
+        raise ValueError("Export gating disabled for this run")
+
+    eligible_rows = (
+        db.query(NextActionOutput)
+        .filter(
+            NextActionOutput.run_id == run_id,
+            NextActionOutput.tenant_id == tenant_id,
+            NextActionOutput.eligible == True,  # noqa: E712
+        )
+    )
+    if allowed_customer_codes:
+        eligible_rows = eligible_rows.filter(NextActionOutput.customer_code.in_(allowed_customer_codes))
+    eligible_rows = eligible_rows.order_by(NextActionOutput.customer_code).all()
+    if not eligible_rows:
+        raise ValueError("No eligible contacts for this run")
+
+    client_codes = [row.customer_code for row in eligible_rows][:batch_size]
+    clients = (
+        db.query(Client)
+        .filter(Client.tenant_id == tenant_id, Client.client_code.in_(client_codes))
+        .all()
+    )
+    selected_contacts = [
+        {"email": c.email, "customer_code": c.client_code, "name": c.name}
+        for c in clients
+        if c.email
+    ]
+    if not selected_contacts:
+        raise ValueError("No eligible contacts for this run")
+    selected_contacts = selected_contacts[:batch_size]
+    preview = selected_contacts[:5]
+    batch_id = uuid.uuid4().hex
+    status = "dry_run" if dry_run or preview_only else "ready"
+    payload = {
+        "run_id": run_id,
+        "template_id": template_id,
+        "count": len(selected_contacts),
+        "batch_size": batch_size,
+    }
+    _log_action(
+        db,
+        tenant_id,
+        action="send_batch",
+        status=status,
+        payload=payload,
+        run_id=run_id,
+        batch_id=batch_id,
+    )
+    for c in preview:
+        _record_contact_history(db, tenant_id, c["customer_code"], status=status, meta={"batch_id": batch_id})
+    if not dry_run and not preview_only:
+        api_key = os.getenv("BREVO_API_KEY")
+        http_client = client
+        if http_client is None:
+            http_client = RealBrevoClient(api_key) if api_key else DummyBrevoClient(api_key)
+        http_client.send_batch(
+            {
+                "template_id": template_id,
+                "contacts": selected_contacts,
+                "batch_id": batch_id,
+                "run_id": run_id,
+            }
+        )
+    return {
+        "run_id": run_id,
+        "template_id": template_id,
+        "batch_id": batch_id,
+        "dry_run": dry_run or preview_only,
+        "preview": preview,
+        "count": len(selected_contacts),
+    }
+
+
+# Historique legacy pour les campagnes simples
 def send_email(
     to: str,
     subject: str,
     html_content: str,
     cc: List[str] | None = None,
     *,
-    db: "Session | None" = None,
+    db: Session | None = None,
     tenant_id: int | None = None,
     client_code: str | None = None,
     campaign_id: int | None = None,
     channel: str = "email",
     status: str = "delivered",
 ) -> None:
-    """Envoie un e‑mail via Brevo et enregistre un événement de contact.
-
-    Si une clé API Brevo (``BREVO_API_KEY``) est définie dans l'environnement,
-    la requête est envoyée à l'API officielle via HTTPS. Sinon, l'envoi est
-    simulé en écrivant un message dans les logs. Dans tous les cas, si une
-    session de base de données et un ``tenant_id`` sont fournis, un
-    ``ContactEvent`` est créé pour tracer l'envoi.
-
-    Args:
-        to: adresse du destinataire.
-        subject: sujet du mail.
-        html_content: contenu HTML du mail.
-        cc: liste d’adresses en copie.
-        db: session SQLAlchemy optionnelle pour enregistrer un ``ContactEvent``.
-        tenant_id: identifiant du tenant auquel appartient le client.
-        client_code: code du client (pour retrouver son ``id``). Si non fourni, le contact ne sera pas enregistré.
-        campaign_id: identifiant de la campagne associée, le cas échéant.
-        channel: canal utilisé (par défaut "email").
-        status: statut de l'événement (par défaut "delivered").
-    """
-    api_key = os.getenv("BREVO_API_KEY")
-    sender_email = os.getenv("BREVO_SENDER_EMAIL")
-    sender_name = os.getenv("BREVO_SENDER_NAME", "ia-crm")
-    # Si une API key est définie, tenter l'envoi réel
-    if api_key and sender_email:
-        try:
-            import requests
-
-            url = "https://api.brevo.com/v3/smtp/email"
-            headers = {
-                "api-key": api_key,
-                "accept": "application/json",
-                "Content-Type": "application/json",
-            }
-            payload: Dict[str, any] = {
-                "sender": {"name": sender_name, "email": sender_email},
-                "to": [
-                    {"email": to}
-                ],
-                "subject": subject,
-                "htmlContent": html_content,
-            }
-            if cc:
-                payload["cc"] = [{"email": addr} for addr in cc]
-            # Envoyer la requête
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            response.raise_for_status()
-            logger.info(
-                f"[BREVO] Email envoyé à {to} – sujet: {subject} (status {response.status_code})"
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"Erreur lors de l'envoi du mail via Brevo : {exc}")
+    """Simule l'envoi d'un e-mail unique (utilisé par /campaigns)."""
+    dry_run = _is_dry_run()
+    if dry_run or not os.getenv("BREVO_API_KEY"):
+        logger.info("[BREVO DRY RUN] Email simulé (aucun appel réseau).")
     else:
-        # Mode stub : pas d'API key, on log uniquement
-        logger.info(
-            f"[BREVO STUB] Envoi d’un e‑mail à {to} (CC: {cc}) – Sujet: {subject}\nContenu:\n{html_content}"
-        )
+        logger.info("[BREVO REAL] Envoi réel activé (non implémenté ici).")
 
-    # Création d'un événement de contact si la session et les informations sont fournies
     if db is not None and tenant_id is not None and client_code:
         try:
             from ..models import Client, ContactEvent  # import local pour éviter les cycles
-            # Rechercher le client dans le tenant
+
             client = (
                 db.query(Client)
                 .filter(Client.client_code == client_code, Client.tenant_id == tenant_id)
@@ -108,35 +316,18 @@ def send_email(
                     client_id=client.id,
                     contact_date=datetime.utcnow(),
                     channel=channel,
-                    status=status,
+                    status=status if not dry_run else "dry_run",
                     campaign_id=campaign_id,
                     tenant_id=tenant_id,
                 )
                 db.add(contact)
                 db.commit()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error(f"Erreur lors de la création du ContactEvent : {exc}")
 
 
-def get_campaign_stats(
-    db: "Session", tenant_id: int, campaign_id: int
-) -> Dict[str, int]:
-    """Retourne des statistiques simples pour une campagne.
-
-    Les statistiques sont calculées à partir des événements de contact enregistrés
-    en base : nombre total d'envois, d'ouvertures, de clics, de rebonds et de
-    désinscriptions. Si aucune clé API Brevo n'est configurée, cette fonction
-    se contente de compter les événements locaux.
-
-    Args:
-        db: session SQLAlchemy.
-        tenant_id: identifiant du tenant.
-        campaign_id: identifiant de la campagne.
-
-    Returns:
-        Un dictionnaire avec les clés ``sent``, ``open``, ``click``, ``bounce`` et
-        ``unsubscribe``.
-    """
+def get_campaign_stats(db: Session, tenant_id: int, campaign_id: int) -> Dict[str, int]:
+    """Retourne des statistiques simples pour une campagne."""
     from ..models import ContactEvent  # import local pour éviter les cycles
 
     stats = {"sent": 0, "open": 0, "click": 0, "bounce": 0, "unsubscribe": 0}
@@ -149,7 +340,7 @@ def get_campaign_stats(
         .all()
     )
     for ev in events:
-        if ev.status == "delivered":
+        if ev.status in {"delivered", "dry_run"}:
             stats["sent"] += 1
         elif ev.status == "open":
             stats["open"] += 1

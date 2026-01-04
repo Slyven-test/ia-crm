@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface ConfigSetting {
   id: number;
@@ -10,7 +11,6 @@ interface ConfigSetting {
 }
 
 export default function ConfigPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export default function ConfigPage() {
 
   const fetchSettings = async () => {
     try {
-      const resp = await axios.get(`${apiUrl}/config/`, {
+      const resp = await axios.get(`${API_BASE_URL}/config/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSettings(resp.data);
@@ -49,7 +49,7 @@ export default function ConfigPage() {
     try {
       setLoading(true);
       await axios.put(
-        `${apiUrl}/config/${encodeURIComponent(key)}`,
+        `${API_BASE_URL}/config/${encodeURIComponent(key)}`,
         {
           value: newValue,
           description: newDescription,
