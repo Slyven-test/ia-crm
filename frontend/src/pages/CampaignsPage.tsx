@@ -2,25 +2,58 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../lib/apiBase';
 
+interface RunOption {
+  run_id: string;
+}
+
+interface BrevoLog {
+  id: number;
+  action: string;
+  status: string;
+  created_at?: string;
+  payload_redacted?: string;
+}
+
+interface RunOption {
+  run_id: string;
+}
+
+interface BrevoLog {
+  id: number;
+  action: string;
+  status: string;
+  created_at?: string;
+  payload_redacted?: string;
+}
+
 export default function CampaignsPage() {
-  const [runs, setRuns] = useState<Array<{ run_id: string }>>([]);
+  const [runs, setRuns] = useState<RunOption[]>([]);
   const [runId, setRunId] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [batchSize, setBatchSize] = useState(200);
-  const [segment, setSegment] = useState('');
-  const [cluster, setCluster] = useState('');
+  const [logs, setLogs] = useState<BrevoLog[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
-  const [counts, setCounts] = useState<{ n_selected: number; n_in_batch: number } | null>(null);
-  const [sendResult, setSendResult] = useState<any | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   const fetchRuns = async () => {
     try {
-      const resp = await axios.get(`${API_BASE_URL}/reco/runs?limit=20`, { headers: authHeaders });
+      const resp = await axios.get(`${apiUrl}/reco/runs?limit=20`, { headers: authHeaders });
       setRuns(resp.data);
       if (resp.data.length > 0 && !runId) setRunId(resp.data[0].run_id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchLogs = async (selectedRun?: string) => {
+    if (!selectedRun) return;
+    try {
+      const resp = await axios.get(`${apiUrl}/brevo/logs?run_id=${encodeURIComponent(selectedRun)}`, { headers: authHeaders });
+      setLogs(resp.data);
     } catch (err) {
       console.error(err);
     }
@@ -30,52 +63,39 @@ export default function CampaignsPage() {
     fetchRuns();
   }, []);
 
-  const previewBatch = async () => {
-    if (!templateId) return;
+  useEffect(() => {
+    if (runId) fetchLogs(runId);
+  }, [runId]);
+
+  const prepareBatch = async () => {
+    if (!runId || !templateId) return;
     setMessage(null);
-    setSendResult(null);
     try {
       const resp = await axios.post(
-        `${API_BASE_URL}/campaigns/preview`,
-        {
-          run_id: runId || undefined,
-          template_id: templateId,
-          batch_size: batchSize,
-          preview_only: true,
-          segment: segment || undefined,
-          cluster: cluster || undefined,
-        },
+        `${apiUrl}/brevo/send_batch`,
+        { run_id: runId, template_id: templateId, batch_size: batchSize, dry_run: true, preview_only: true },
         { headers: authHeaders }
       );
       setPreview(resp.data.preview || []);
-      setCounts({ n_selected: resp.data.n_selected, n_in_batch: resp.data.n_in_batch });
-      setSendResult(resp.data.result);
-      setMessage(`Prévisualisation prête (${resp.data.n_in_batch}/${resp.data.n_selected})`);
+      setMessage(`Préparation OK (dry-run) pour ${resp.data.count} contacts`);
+      fetchLogs(runId);
     } catch (err: any) {
-      setMessage(err?.response?.data?.detail || 'Erreur lors de la prévisualisation');
+      setMessage(err?.response?.data?.detail || 'Erreur lors de la préparation');
     }
   };
 
-  const sendBatch = async () => {
-    if (!templateId) return;
+  const sendBatch = async (real: boolean) => {
+    if (!runId || !templateId) return;
     setMessage(null);
     try {
       const resp = await axios.post(
-        `${API_BASE_URL}/campaigns/send`,
-        {
-          run_id: runId || undefined,
-          template_id: templateId,
-          batch_size: batchSize,
-          preview_only: false,
-          segment: segment || undefined,
-          cluster: cluster || undefined,
-        },
+        `${apiUrl}/brevo/send_batch`,
+        { run_id: runId, template_id: templateId, batch_size: batchSize, dry_run: !real, preview_only: false },
         { headers: authHeaders }
       );
       setPreview(resp.data.preview || []);
-      setCounts({ n_selected: resp.data.n_selected, n_in_batch: resp.data.n_in_batch });
-      setSendResult(resp.data.result);
-      setMessage(`Batch ${resp.data.result?.dry_run ? 'simulé' : 'envoyé'} (contacts: ${resp.data.result?.count ?? resp.data.n_in_batch})`);
+      setMessage(`Batch ${resp.data.dry_run ? 'simulé' : 'envoyé'} (contacts: ${resp.data.count})`);
+      fetchLogs(runId);
     } catch (err: any) {
       setMessage(err?.response?.data?.detail || 'Erreur lors de l’envoi');
     }
@@ -88,9 +108,8 @@ export default function CampaignsPage() {
         <div className="border p-3 rounded">
           <h3 className="font-semibold mb-2">Paramétrage batch</h3>
           <label className="block text-sm mb-2">
-            Run (optionnel, sinon dernier run)
+            Run
             <select value={runId} onChange={(e) => setRunId(e.target.value)} className="border w-full px-2 py-1 mt-1">
-              <option value="">(dernier run)</option>
               {runs.map((r) => (
                 <option key={r.run_id} value={r.run_id}>{r.run_id}</option>
               ))}
@@ -104,43 +123,47 @@ export default function CampaignsPage() {
             Taille lot (200-300)
             <input className="border w-full px-2 py-1" type="number" min={200} max={300} value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} />
           </label>
-          <label className="block text-sm mb-2">
-            Segment RFM (optionnel)
-            <input className="border w-full px-2 py-1" value={segment} onChange={(e) => setSegment(e.target.value)} placeholder="ex: Champions" />
-          </label>
-          <label className="block text-sm mb-2">
-            Cluster (optionnel)
-            <input className="border w-full px-2 py-1" value={cluster} onChange={(e) => setCluster(e.target.value)} placeholder="ex: CL1" />
-          </label>
           <div className="flex gap-2">
-            <button className="bg-gray-200 px-3 py-2 rounded" onClick={previewBatch}>Prévisualiser</button>
-            <button className="bg-blue-600 text-white px-3 py-2 rounded" onClick={sendBatch}>Envoyer</button>
+            <button className="bg-gray-200 px-3 py-2 rounded" onClick={prepareBatch}>Prepare (Dry-run)</button>
+            <button className="bg-green-600 text-white px-3 py-2 rounded" onClick={() => sendBatch(false)}>Send (Dry-run)</button>
+            <button className="bg-blue-600 text-white px-3 py-2 rounded" onClick={() => sendBatch(true)}>Send (REAL)</button>
           </div>
         </div>
         <div className="border p-3 rounded">
           <h3 className="font-semibold mb-2">Prévisualisation (5 contacts)</h3>
-          {counts && (
-            <p className="text-sm text-gray-700 mb-2">
-              Sélectionnés: {counts.n_selected} — Batch: {counts.n_in_batch}
-            </p>
-          )}
-          {preview.length === 0 && <p className="text-sm text-gray-500">Aucune donnée. Lancez Prévisualiser.</p>}
+          {preview.length === 0 && <p className="text-sm text-gray-500">Aucune donnée. Lancez Prepare ou Send.</p>}
           {preview.length > 0 && (
             <ul className="text-sm list-disc list-inside">
               {preview.map((p, idx) => (
-                <li key={idx}>
-                  {p.customer_code} — {p.email} — {p.name ?? '-'} {p.product_key ? `(${p.product_key}, ${p.scenario ?? '-'})` : ''}
-                </li>
+                <li key={idx}>{p.customer_code} — {p.email} — {p.name}</li>
               ))}
             </ul>
           )}
-          {sendResult && (
-            <div className="mt-3 text-sm text-gray-700">
-              <p>Dry run: {sendResult.dry_run ? 'oui' : 'non'}</p>
-              {sendResult.api_calls !== undefined && <p>Appels API: {sendResult.api_calls}</p>}
-            </div>
-          )}
         </div>
+      </div>
+      <div className="border p-3 rounded mb-4">
+        <h3 className="font-semibold mb-2">Logs Brevo</h3>
+        {logs.length === 0 && <p className="text-sm text-gray-500">Aucun log pour ce run.</p>}
+        {logs.length > 0 && (
+          <table className="min-w-full text-sm divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-2 py-1 text-left">Action</th>
+                <th className="px-2 py-1 text-left">Statut</th>
+                <th className="px-2 py-1 text-left">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td className="px-2 py-1">{log.action}</td>
+                  <td className="px-2 py-1">{log.status}</td>
+                  <td className="px-2 py-1">{log.created_at ? new Date(log.created_at).toLocaleString() : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
       {message && <p className="mt-2 text-red-600">{message}</p>}
     </div>

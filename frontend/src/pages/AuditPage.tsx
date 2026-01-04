@@ -34,6 +34,8 @@ interface RunDetail {
 }
 
 export default function AuditPage() {
+  const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,7 +43,7 @@ export default function AuditPage() {
   const fetchLatestRun = async () => {
     try {
       setLoading(true);
-      const runs = await axios.get(`${API_BASE_URL}/reco/runs?limit=1`, {
+      const runs = await axios.get(`${apiUrl}/reco/runs?limit=1`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!runs.data || runs.data.length === 0) {
@@ -49,7 +51,7 @@ export default function AuditPage() {
         return;
       }
       const runId = runs.data[0].run_id;
-      const resp = await axios.get(`${API_BASE_URL}/reco/runs/${runId}`, {
+      const resp = await axios.get(`${apiUrl}/reco/runs/${runId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDetail(resp.data);

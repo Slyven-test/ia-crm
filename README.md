@@ -110,23 +110,13 @@ Le test copie les fixtures `samples/isavigne`, exécute l’ETL multi-tenant, la
 
 #### Smoke UI (pages Runs/QC/Exports/Campagnes)
 
-Pour vérifier rapidement le chargement des principales pages front avec la démo (`demo/demo`) :
+Pour vérifier rapidement le chargement des principales pages front avec la démo (`demo/demo`) :
 
 ```bash
 ./scripts/ui_smoke.sh
 ```
 
 Le script démarre le backend (SQLite + données démo), build/preview le frontend et lance Playwright (`npm run test:ui-smoke`) qui ouvre les pages Runs, Audit/QC, Exports et Campagnes en vérifiant l’absence d’erreurs console.
-
-### Local validation (one command)
-
-Pour exécuter toute la batterie de checks (tests + smoke API/UI + Docker Compose), lancez :
-
-```bash
-./scripts/full_smoke.sh
-```
-
-Le script enchaîne `pytest -q`, `api_smoke`, `ui_smoke` puis `compose_smoke`. Si Docker n’est pas installé, `compose_smoke` se met en **SKIP** automatiquement et le reste des checks reste vert.
 
 ## Parcours opérationnel (ingestion → reco → QC → export)
 

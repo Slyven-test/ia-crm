@@ -13,10 +13,10 @@ import logging
 import os
 import uuid
 from datetime import datetime
-import time
 from typing import Any, Dict, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Tuple, Protocol, runtime_checkable
+from typing import Dict, List, Tuple
 
-import httpx
 from sqlalchemy.orm import Session
 
 from ..models import BrevoLog, Client, ContactHistory, NextActionOutput, RunSummary
@@ -92,73 +92,6 @@ class DummyBrevoClient:
         return {"status": "noop"}
 
 
-class RealBrevoClient:
-    """Client Brevo réel, safe-by-default (aucune clé n'est loggée)."""
-
-    def __init__(
-        self,
-        api_key: str,
-        *,
-        base_url: str | None = None,
-        timeout: float = 10.0,
-        http_post: Any = None,
-    ) -> None:
-        self.api_key = api_key
-        self.base_url = (base_url or os.getenv("BREVO_BASE_URL") or "https://api.brevo.com/v3").rstrip("/")
-        self.timeout = timeout
-        self._http_post = http_post or httpx.post
-
-    def send_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}/smtp/email"
-        contacts: List[Dict[str, Any]] = payload.get("contacts", [])
-        max_versions = max(1, int(os.getenv("BREVO_MAX_MESSAGE_VERSIONS", "100") or 100))
-        headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-
-        def _build_versions(chunk: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            versions: List[Dict[str, Any]] = []
-            for c in chunk:
-                versions.append(
-                    {
-                        "to": [{"email": c["email"], "name": c.get("name") or c["customer_code"]}],
-                        "params": {
-                            "run_id": payload.get("run_id"),
-                            "batch_id": payload.get("batch_id"),
-                            "customer_code": c.get("customer_code"),
-                        },
-                    }
-                )
-            return versions
-
-        api_calls = 0
-        responses: List[Dict[str, Any]] = []
-        for i in range(0, len(contacts), max_versions):
-            chunk = contacts[i : i + max_versions]
-            data = {
-                "templateId": payload["template_id"],
-                "messageVersions": _build_versions(chunk),
-            }
-            retries = 0
-            max_retries = 2
-            backoff = 1.5
-            while True:
-                resp = self._http_post(url, headers=headers, json=data, timeout=self.timeout)
-                if resp.status_code == 429 and retries < max_retries:
-                    time.sleep(backoff * (retries + 1))
-                    retries += 1
-                    continue
-                if resp.status_code >= 400:
-                    raise RuntimeError(f"Brevo API error {resp.status_code}: {getattr(resp, 'text', '')[:200]}")
-                try:
-                    body = resp.json()
-                except Exception:  # pragma: no cover - defensive
-                    body = {}
-                api_calls += 1
-                responses.append(body)
-                break
-
-        return {"status": "sent", "api_calls": api_calls, "responses": responses}
-
-
 def sync_contacts(db: Session, tenant_id: int, force_dry_run: bool | None = None) -> Dict:
     """Prépare la synchro des contacts Brevo (DRY RUN par défaut)."""
     dry_run = _is_dry_run(force_dry_run)
@@ -190,7 +123,6 @@ def send_batch(
     force_dry_run: bool | None = None,
     preview_only: bool = False,
     client: BrevoClient | None = None,
-    allowed_customer_codes: list[str] | None = None,
 ) -> Dict:
     """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
     if batch_size < 200 or batch_size > 300:
@@ -201,6 +133,10 @@ def send_batch(
         .filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id)
         .first()
     )
+) -> Dict:
+    """Prépare ou simule l’envoi d’un lot d’e-mails basé sur un run."""
+    dry_run = _is_dry_run(force_dry_run)
+    summary = db.query(RunSummary).filter(RunSummary.run_id == run_id, RunSummary.tenant_id == tenant_id).first()
     summary_json = {}
     if summary and summary.summary_json:
         try:
@@ -217,10 +153,8 @@ def send_batch(
             NextActionOutput.tenant_id == tenant_id,
             NextActionOutput.eligible == True,  # noqa: E712
         )
+        .all()
     )
-    if allowed_customer_codes:
-        eligible_rows = eligible_rows.filter(NextActionOutput.customer_code.in_(allowed_customer_codes))
-    eligible_rows = eligible_rows.order_by(NextActionOutput.customer_code).all()
     if not eligible_rows:
         raise ValueError("No eligible contacts for this run")
 
@@ -230,21 +164,17 @@ def send_batch(
         .filter(Client.tenant_id == tenant_id, Client.client_code.in_(client_codes))
         .all()
     )
-    selected_contacts = [
+    preview = [
         {"email": c.email, "customer_code": c.client_code, "name": c.name}
         for c in clients
         if c.email
-    ]
-    if not selected_contacts:
-        raise ValueError("No eligible contacts for this run")
-    selected_contacts = selected_contacts[:batch_size]
-    preview = selected_contacts[:5]
+    ][:5]
     batch_id = uuid.uuid4().hex
     status = "dry_run" if dry_run or preview_only else "ready"
     payload = {
         "run_id": run_id,
         "template_id": template_id,
-        "count": len(selected_contacts),
+        "count": len(preview),
         "batch_size": batch_size,
     }
     _log_action(
@@ -253,20 +183,23 @@ def send_batch(
         action="send_batch",
         status=status,
         payload=payload,
+        payload={
+            "run_id": run_id,
+            "template_id": template_id,
+            "count": len(preview),
+            "batch_size": batch_size,
+        },
         run_id=run_id,
         batch_id=batch_id,
     )
     for c in preview:
         _record_contact_history(db, tenant_id, c["customer_code"], status=status, meta={"batch_id": batch_id})
     if not dry_run and not preview_only:
-        api_key = os.getenv("BREVO_API_KEY")
-        http_client = client
-        if http_client is None:
-            http_client = RealBrevoClient(api_key) if api_key else DummyBrevoClient(api_key)
+        http_client = client or DummyBrevoClient(os.getenv("BREVO_API_KEY"))
         http_client.send_batch(
             {
                 "template_id": template_id,
-                "contacts": selected_contacts,
+                "contacts": preview,
                 "batch_id": batch_id,
                 "run_id": run_id,
             }
@@ -277,7 +210,7 @@ def send_batch(
         "batch_id": batch_id,
         "dry_run": dry_run or preview_only,
         "preview": preview,
-        "count": len(selected_contacts),
+        "count": len(preview),
     }
 
 
