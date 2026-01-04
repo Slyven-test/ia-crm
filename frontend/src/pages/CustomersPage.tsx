@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Client {
   id: number;
@@ -23,13 +24,12 @@ interface Client {
 export default function CustomersPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
 
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const resp = await axios.get(`${apiUrl}/clients/`, {
+      const resp = await axios.get(`${API_BASE_URL}/clients/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setClients(resp.data);
@@ -48,7 +48,7 @@ export default function CustomersPage() {
     try {
       setLoading(true);
       await axios.post(
-        `${apiUrl}/rfm/run`,
+        `${API_BASE_URL}/rfm/run`,
         {},
         {
           headers: { Authorization: `Bearer ${token}` },

@@ -12,19 +12,39 @@ services:
       - db-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: always
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       # La base se trouve sur le service "db" du réseau docker-compose
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ia_crm
       JWT_SECRET_KEY: supersecretchangeme
       BREVO_API_KEY: ""  # à compléter en production
+      PYTHONPATH: /app:/app/etl
+      ENABLE_DEMO_DATA: "1"
+      DATA_DIR: /app/data
     ports:
       - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python - <<'PY'\nimport sys,urllib.request\ntry:\n    r=urllib.request.urlopen('http://localhost:8000/health',timeout=2)\n    sys.exit(0 if r.status==200 else 1)\nexcept Exception:\n    sys.exit(1)\nPY",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
   # Redis broker for Celery tasks and result backend. This container exposes
   # port 6379 for local development. In production you may want to restrict
@@ -34,14 +54,23 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Celery worker that processes asynchronous tasks defined in app/tasks.py.
   celery_worker:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: always
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ia_crm
       JWT_SECRET_KEY: supersecretchangeme
@@ -49,6 +78,7 @@ services:
       # Celery broker and backend point to the redis container.
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONPATH: /app:/app/etl
     command: celery -A app.tasks worker --loglevel=info
     volumes:
       - ./backend/app:/app/app
@@ -56,28 +86,44 @@ services:
   # Celery beat scheduler for periodic tasks. It uses the same code
   # base as the backend and executes the schedule defined in app/tasks.py.
   celery_beat:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: always
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/ia_crm
       JWT_SECRET_KEY: supersecretchangeme
       BREVO_API_KEY: ""
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      PYTHONPATH: /app:/app/etl
     command: celery -A app.tasks beat --loglevel=info
     volumes:
       - ./backend/app:/app/app
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://backend:8000
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    environment:
+      - VITE_API_URL=http://backend:8000
     ports:
       - "3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
 volumes:
   db-data:
