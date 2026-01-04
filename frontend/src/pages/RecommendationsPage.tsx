@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Recommendation {
   id: number;
@@ -15,7 +16,6 @@ export default function RecommendationsPage() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
 
   const authHeaders = {
@@ -27,7 +27,7 @@ export default function RecommendationsPage() {
     try {
       setLoading(true);
       const response = await axios.post<Recommendation[]>(
-        `${apiUrl}/recommendations/generate`,
+        `${API_BASE_URL}/recommendations/generate`,
         {},
         { headers: authHeaders }
       );
@@ -43,7 +43,7 @@ export default function RecommendationsPage() {
   const fetchAllRecs = async () => {
     try {
       setLoading(true);
-      const response = await axios.get<Recommendation[]>(`${apiUrl}/recommendations/`, {
+      const response = await axios.get<Recommendation[]>(`${API_BASE_URL}/recommendations/`, {
         headers: authHeaders,
       });
       setRecs(response.data);
@@ -61,7 +61,7 @@ export default function RecommendationsPage() {
     try {
       setLoading(true);
       const response = await axios.get<Recommendation[]>(
-        `${apiUrl}/recommendations/client/${encodeURIComponent(clientCode)}`,
+        `${API_BASE_URL}/recommendations/client/${encodeURIComponent(clientCode)}`,
         { headers: authHeaders }
       );
       setRecs(response.data);

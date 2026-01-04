@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Recommendation {
   id: number;
@@ -15,7 +16,6 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
 
   const authHeaders = {
@@ -24,7 +24,7 @@ export default function ReviewPage() {
 
   const fetchRecommendations = async () => {
     try {
-      const response = await axios.get<Recommendation[]>(`${apiUrl}/recommendations/`, {
+      const response = await axios.get<Recommendation[]>(`${API_BASE_URL}/recommendations/`, {
         headers: authHeaders,
       });
       // Ne conserver que les recommandations non approuvées
@@ -53,7 +53,7 @@ export default function ReviewPage() {
     setMessage(null);
     try {
       await axios.post(
-        `${apiUrl}/recommendations/approve`,
+        `${API_BASE_URL}/recommendations/approve`,
         { reco_ids: Array.from(selected) },
         { headers: authHeaders }
       );

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface ContactEvent {
   id: number;
@@ -11,7 +12,6 @@ interface ContactEvent {
 }
 
 export default function ContactsPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
   const [events, setEvents] = useState<ContactEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,7 @@ export default function ContactsPage() {
       if (statusFilter.trim().length > 0) {
         params.status = statusFilter.trim();
       }
-      const resp = await axios.get(`${apiUrl}/contacts`, {
+      const resp = await axios.get(`${API_BASE_URL}/contacts`, {
         params,
         headers: { Authorization: `Bearer ${token}` },
       });

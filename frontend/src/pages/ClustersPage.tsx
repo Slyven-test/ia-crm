@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Distribution {
   [cluster: string]: number;
@@ -10,7 +11,6 @@ export default function ClustersPage() {
   const [nClusters, setNClusters] = useState<number>(4);
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<string | null>(null);
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
 
   const authHeaders = {
@@ -19,7 +19,7 @@ export default function ClustersPage() {
 
   const fetchDistribution = async () => {
     try {
-      const res = await axios.get<Distribution>(`${apiUrl}/clusters/`, {
+      const res = await axios.get<Distribution>(`${API_BASE_URL}/clusters/`, {
         headers: authHeaders,
       });
       setDistribution(res.data);
@@ -38,7 +38,7 @@ export default function ClustersPage() {
     setMessage(null);
     try {
       await axios.post<Distribution>(
-        `${apiUrl}/clusters/recompute?n_clusters=${nClusters}`,
+        `${API_BASE_URL}/clusters/recompute?n_clusters=${nClusters}`,
         {},
         {
           headers: authHeaders,

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../lib/apiBase';
 
 interface Overview {
   total_clients: number;
@@ -24,7 +25,6 @@ interface Outcomes {
 }
 
 export default function AnalyticsPage() {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
   const token = localStorage.getItem('token');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
@@ -33,13 +33,13 @@ export default function AnalyticsPage() {
   const fetchData = async () => {
     try {
       const [ovRes, trendRes, outRes] = await Promise.all([
-        axios.get(`${apiUrl}/analytics/overview`, {
+        axios.get(`${API_BASE_URL}/analytics/overview`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${apiUrl}/analytics/sales-trend?period=month`, {
+        axios.get(`${API_BASE_URL}/analytics/sales-trend?period=month`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${apiUrl}/analytics/outcomes`, {
+        axios.get(`${API_BASE_URL}/analytics/outcomes`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);

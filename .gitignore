@@ -1,0 +1,20 @@
+# Environnements Python / Node
+.venv/
+node_modules/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# Builds et artefacts
+frontend/dist/
+backend/local.db
+data/
+backups/
+*.db
+**/*.egg-info/
+
+# Sources JS générés
+frontend/src/**/*.js
+
+# Config locale
+.env
