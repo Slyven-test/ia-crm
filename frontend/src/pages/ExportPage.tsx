@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import API_BASE_URL from '../lib/apiBase';
 
 export default function ExportPage() {
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [runId, setRunId] = useState<string | null>(null);
 
@@ -10,7 +10,7 @@ export default function ExportPage() {
 
   const fetchLatestRun = async () => {
     try {
-      const resp = await axios.get(`${API_BASE_URL}/reco/runs?limit=1`, { headers: authHeader });
+      const resp = await axios.get(`${apiUrl}/reco/runs?limit=1`, { headers: authHeader });
       if (resp.data && resp.data.length > 0) {
         setRunId(resp.data[0].run_id);
       } else {
@@ -29,7 +29,7 @@ export default function ExportPage() {
   const downloadExport = async (kind: 'reco_output' | 'audit_output' | 'next_action_output' | 'run_summary') => {
     if (!runId) return;
     const endpoint = kind === 'run_summary' ? `run_summary.json` : `${kind}.csv`;
-    const url = `${API_BASE_URL}/export/runs/${runId}/${endpoint}`;
+    const url = `${apiUrl}/export/runs/${runId}/${endpoint}`;
     const resp = await axios.get(url, { headers: authHeader, responseType: 'blob' });
     const blob = new Blob([resp.data]);
     const link = document.createElement('a');

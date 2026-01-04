@@ -172,7 +172,8 @@ class ProductUpdate(BaseModel):
 class ProductRead(ProductBase):
     id: int
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True
 
 
 # --- Sale ---
@@ -411,6 +412,92 @@ class ContactHistoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RecoOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    scenario: Optional[str] = None
+    rank: Optional[int] = None
+    product_key: str
+    score: Optional[float] = None
+    explain_short: Optional[str] = None
+    reasons_json: Optional[str] = None
+    tenant_id: int
+
+
+class RecoOutputRead(RecoOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class AuditOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    severity: str
+    rule_code: str
+    details_json: Optional[str] = None
+    tenant_id: int
+
+
+class AuditOutputRead(AuditOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class NextActionOutputBase(BaseModel):
+    run_id: str
+    customer_code: str
+    eligible: bool
+    reason: Optional[str] = None
+    scenario: Optional[str] = None
+    audit_score: Optional[float] = None
+    tenant_id: int
+
+
+class NextActionOutputRead(NextActionOutputBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+
+class RecoRunDetail(BaseModel):
+    run: RecoRunRead
+    summary: Optional[dict] = None
+    next_actions: list[NextActionOutputRead] = []
+    top_audit: list[AuditOutputRead] = []
+
+
+# --- Brevo ---
+
+class BrevoLogRead(BaseModel):
+    id: int
+    run_id: Optional[str] = None
+    batch_id: Optional[str] = None
+    action: str
+    payload_redacted: Optional[str] = None
+    status: str
+    created_at: Optional[dt.datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ContactHistoryRead(BaseModel):
+    id: int
+    customer_code: str
+    last_contact_at: dt.datetime
+    channel: Optional[str] = None
+    status: Optional[str] = None
+    meta: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
 # --- Recommendation ---
 
 class RecommendationBase(BaseModel):
@@ -538,4 +625,5 @@ class ProductAliasRead(ProductAliasBase):
     created_at: Optional[dt.datetime] = None
     updated_at: Optional[dt.datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        orm_mode = True

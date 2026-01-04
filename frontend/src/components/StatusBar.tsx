@@ -8,6 +8,8 @@ interface Health {
 }
 
 export default function StatusBar() {
+  const apiUrl = API_BASE_URL;
+  const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const token = localStorage.getItem('token');
   const [health, setHealth] = useState<Health | null>(null);
   const [lastRun, setLastRun] = useState<string | null>(null);
@@ -18,8 +20,8 @@ export default function StatusBar() {
     const fetchStatus = async () => {
       try {
         const [healthResp, runsResp] = await Promise.all([
-          axios.get(`${API_BASE_URL}/health`),
-          token ? axios.get(`${API_BASE_URL}/reco/runs?limit=1`, { headers }) : Promise.resolve({ data: [] }),
+          axios.get(`${apiUrl}/health`),
+          token ? axios.get(`${apiUrl}/reco/runs?limit=1`, { headers }) : Promise.resolve({ data: [] }),
         ]);
         setHealth(healthResp.data);
         if (runsResp.data && runsResp.data.length > 0) {
