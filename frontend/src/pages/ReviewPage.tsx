@@ -25,7 +25,7 @@ export default function ReviewPage() {
 
   const fetchRecommendations = async () => {
     try {
-      const response = await axios.get<Recommendation[]>(`${apiUrl}/recommendations/`, {
+      const response = await axios.get<Recommendation[]>(`${API_BASE_URL}/recommendations/`, {
         headers: authHeaders,
       });
       // Ne conserver que les recommandations non approuvées
@@ -54,7 +54,7 @@ export default function ReviewPage() {
     setMessage(null);
     try {
       await axios.post(
-        `${apiUrl}/recommendations/approve`,
+        `${API_BASE_URL}/recommendations/approve`,
         { reco_ids: Array.from(selected) },
         { headers: authHeaders }
       );

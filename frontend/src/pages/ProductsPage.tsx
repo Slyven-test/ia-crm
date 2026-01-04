@@ -19,7 +19,7 @@ export default function ProductsPage() {
 
   const fetchProducts = async () => {
     try {
-      const resp = await axios.get(`${apiUrl}/products/`, {
+      const resp = await axios.get(`${API_BASE_URL}/products/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setProducts(resp.data);

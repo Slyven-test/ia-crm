@@ -25,7 +25,7 @@ export default function AliasPage() {
 
   const fetchAliases = async () => {
     try {
-      const res = await axios.get(`${apiUrl}/aliases`, {
+      const res = await axios.get(`${API_BASE_URL}/aliases`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setAliases(res.data);
@@ -36,7 +36,7 @@ export default function AliasPage() {
 
   const fetchProducts = async () => {
     try {
-      const res = await axios.get(`${apiUrl}/products`, {
+      const res = await axios.get(`${API_BASE_URL}/products`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setProducts(res.data);
@@ -62,7 +62,7 @@ export default function AliasPage() {
         label_norm: newLabel.trim().toLowerCase(),
         product_key: newProductKey,
       };
-      const res = await axios.post(`${apiUrl}/aliases`, payload, {
+      const res = await axios.post(`${API_BASE_URL}/aliases`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setMessage('Alias ajouté avec succès');
@@ -77,7 +77,7 @@ export default function AliasPage() {
   const handleDelete = async (id: number) => {
     if (!window.confirm('Supprimer cet alias ?')) return;
     try {
-      await axios.delete(`${apiUrl}/aliases/${id}`, {
+      await axios.delete(`${API_BASE_URL}/aliases/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setMessage('Alias supprimé');

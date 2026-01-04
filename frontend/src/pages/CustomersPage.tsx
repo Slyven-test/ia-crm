@@ -30,7 +30,7 @@ export default function CustomersPage() {
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const resp = await axios.get(`${apiUrl}/clients/`, {
+      const resp = await axios.get(`${API_BASE_URL}/clients/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setClients(resp.data);
@@ -49,7 +49,7 @@ export default function CustomersPage() {
     try {
       setLoading(true);
       await axios.post(
-        `${apiUrl}/rfm/run`,
+        `${API_BASE_URL}/rfm/run`,
         {},
         {
           headers: { Authorization: `Bearer ${token}` },

@@ -28,7 +28,7 @@ export default function RecommendationsPage() {
     try {
       setLoading(true);
       const response = await axios.post<Recommendation[]>(
-        `${apiUrl}/recommendations/generate`,
+        `${API_BASE_URL}/recommendations/generate`,
         {},
         { headers: authHeaders }
       );
@@ -44,7 +44,7 @@ export default function RecommendationsPage() {
   const fetchAllRecs = async () => {
     try {
       setLoading(true);
-      const response = await axios.get<Recommendation[]>(`${apiUrl}/recommendations/`, {
+      const response = await axios.get<Recommendation[]>(`${API_BASE_URL}/recommendations/`, {
         headers: authHeaders,
       });
       setRecs(response.data);
@@ -62,7 +62,7 @@ export default function RecommendationsPage() {
     try {
       setLoading(true);
       const response = await axios.get<Recommendation[]>(
-        `${apiUrl}/recommendations/client/${encodeURIComponent(clientCode)}`,
+        `${API_BASE_URL}/recommendations/client/${encodeURIComponent(clientCode)}`,
         { headers: authHeaders }
       );
       setRecs(response.data);

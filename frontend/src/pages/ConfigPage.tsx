@@ -22,7 +22,7 @@ export default function ConfigPage() {
 
   const fetchSettings = async () => {
     try {
-      const resp = await axios.get(`${apiUrl}/config/`, {
+      const resp = await axios.get(`${API_BASE_URL}/config/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSettings(resp.data);
@@ -51,7 +51,7 @@ export default function ConfigPage() {
     try {
       setLoading(true);
       await axios.put(
-        `${apiUrl}/config/${encodeURIComponent(key)}`,
+        `${API_BASE_URL}/config/${encodeURIComponent(key)}`,
         {
           value: newValue,
           description: newDescription,

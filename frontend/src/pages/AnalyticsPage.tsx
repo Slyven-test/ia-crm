@@ -35,13 +35,13 @@ export default function AnalyticsPage() {
   const fetchData = async () => {
     try {
       const [ovRes, trendRes, outRes] = await Promise.all([
-        axios.get(`${apiUrl}/analytics/overview`, {
+        axios.get(`${API_BASE_URL}/analytics/overview`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${apiUrl}/analytics/sales-trend?period=month`, {
+        axios.get(`${API_BASE_URL}/analytics/sales-trend?period=month`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${apiUrl}/analytics/outcomes`, {
+        axios.get(`${API_BASE_URL}/analytics/outcomes`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);

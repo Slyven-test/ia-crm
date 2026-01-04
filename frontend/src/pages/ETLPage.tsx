@@ -17,7 +17,7 @@ export default function ETLPage() {
 
   const fetchState = async () => {
     try {
-      const resp = await axios.get(`${apiUrl}/etl/state`, {
+      const resp = await axios.get(`${API_BASE_URL}/etl/state`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setEtlState(resp.data);
@@ -42,7 +42,7 @@ export default function ETLPage() {
         tenants: tenantsList.length > 0 ? tenantsList : ['default'],
         isolate_schema: isolateSchema,
       };
-      await axios.post(`${apiUrl}/etl/ingest`, body, {
+      await axios.post(`${API_BASE_URL}/etl/ingest`, body, {
         headers: { Authorization: `Bearer ${token}` },
       });
       // refresh state after a short delay to give time for background task

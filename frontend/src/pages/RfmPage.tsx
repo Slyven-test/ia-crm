@@ -15,7 +15,7 @@ export default function RfmPage() {
 
   const fetchDistribution = async () => {
     try {
-      const res = await axios.get(`${apiUrl}/rfm/distribution`, {
+      const res = await axios.get(`${API_BASE_URL}/rfm/distribution`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDistribution(res.data);
@@ -34,7 +34,7 @@ export default function RfmPage() {
     setMessage('');
     try {
       const res = await axios.post(
-        `${apiUrl}/rfm/run`,
+        `${API_BASE_URL}/rfm/run`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );

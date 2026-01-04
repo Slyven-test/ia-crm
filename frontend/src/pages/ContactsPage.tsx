@@ -31,7 +31,7 @@ export default function ContactsPage() {
       if (statusFilter.trim().length > 0) {
         params.status = statusFilter.trim();
       }
-      const resp = await axios.get(`${apiUrl}/contacts`, {
+      const resp = await axios.get(`${API_BASE_URL}/contacts`, {
         params,
         headers: { Authorization: `Bearer ${token}` },
       });
