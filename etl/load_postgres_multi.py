@@ -369,16 +369,37 @@ def verify_load(results: dict) -> dict:
         dict contenant des informations de succès et le nombre de lignes chargées.
     """
     # NORMALIZE_LOAD_RESULTS
-    # Certaines branches ETL peuvent renvoyer une structure non conforme (ex: {'error': 'No curated files found', ...})
-    # ou des valeurs non-dict. On normalise pour éviter les crashes sur `.get()`.
-    if results is None:
-        results = {}
-    if not isinstance(results, dict):
-        results = {"__etl__": {"success": False, "error": str(results)}}
-    else:
-        for _k, _v in list(results.items()):
-            if not isinstance(_v, dict):
-                results[_k] = {"success": False, "error": str(_v)}
+    # Certaines branches ETL peuvent renvoyer une structure non conforme
+    # (ex: {'error': 'No curated files found', ...}) ou des valeurs non-dict.
+    # On normalise en dict-de-dicts avant les aggregations.
+    def _normalize_load_results(raw_results: object) -> dict:
+        if raw_results is None:
+            return {}
+        if not isinstance(raw_results, dict):
+            return {"__etl__": {"success": False, "error": str(raw_results), "error_type": "LoadError"}}
+
+        has_dict_values = any(isinstance(value, dict) for value in raw_results.values())
+        if not has_dict_values and "error" in raw_results:
+            error_message = raw_results.get("error")
+            error_type = "NoCuratedFiles" if "curated" in str(error_message).lower() else "LoadError"
+            return {
+                "__etl__": {
+                    "success": False,
+                    "error": error_message,
+                    "error_type": error_type,
+                    "tenant_id": raw_results.get("tenant_id"),
+                }
+            }
+
+        normalized: dict = {}
+        for key, value in raw_results.items():
+            if isinstance(value, dict):
+                normalized[key] = value
+            else:
+                normalized[key] = {"success": False, "error": str(value), "error_type": "LoadError"}
+        return normalized
+
+    results = _normalize_load_results(results)
 
     logger.info("\n" + "-" * 60)
     logger.info("✓ VÉRIFICATION DU CHARGEMENT")
