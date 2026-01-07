@@ -1,20 +1,21 @@
-ia-crm.aubach.fr {
-	encode zstd gzip
+{
+  auto_https off
+}
 
-	# Security headers
-	header {
-		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-		X-Content-Type-Options "nosniff"
-	}
+:80 {
+  encode zstd gzip
 
-	@api path /api/* /health
-	handle @api {
-		reverse_proxy backend:8000
-	}
+  header {
+    Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+  }
 
-	handle {
-		reverse_proxy frontend:80
-	}
+  @api path /api/* /health /docs /openapi.json /redoc
+  handle @api {
+    reverse_proxy backend:8000
+  }
 
-	# HTTP -> HTTPS redirect is handled automatically by Caddy when TLS is enabled.
+  handle {
+    reverse_proxy frontend:80
+  }
 }
