@@ -368,6 +368,18 @@ def verify_load(results: dict) -> dict:
     Returns:
         dict contenant des informations de succès et le nombre de lignes chargées.
     """
+    # NORMALIZE_LOAD_RESULTS
+    # Certaines branches ETL peuvent renvoyer une structure non conforme (ex: {'error': 'No curated files found', ...})
+    # ou des valeurs non-dict. On normalise pour éviter les crashes sur `.get()`.
+    if results is None:
+        results = {}
+    if not isinstance(results, dict):
+        results = {"__etl__": {"success": False, "error": str(results)}}
+    else:
+        for _k, _v in list(results.items()):
+            if not isinstance(_v, dict):
+                results[_k] = {"success": False, "error": str(_v)}
+
     logger.info("\n" + "-" * 60)
     logger.info("✓ VÉRIFICATION DU CHARGEMENT")
     logger.info("-" * 60)
