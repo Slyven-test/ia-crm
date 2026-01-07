@@ -87,20 +87,19 @@ def create_app() -> FastAPI:
         logging.getLogger(__name__).warning("%s (%s)", msg, exc)
         if strict_startup:
             raise
-    if db_ready and os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
     # Créer les tables en base si nécessaire
-    Base.metadata.create_all(bind=engine)
-    if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
-        db = SessionLocal()
-        try:
-            seed_demo_data(db)
-        finally:
-            db.close()
+    if db_ready:
+        Base.metadata.create_all(bind=engine)
+        if os.getenv("ENABLE_DEMO_DATA", "0").lower() in {"1", "true", "yes", "on"}:
+            db = SessionLocal()
+            try:
+                seed_demo_data(db)
+            finally:
+                db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
     origin_env = os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS")
     allowed_origins = (origin_env or "http://localhost:3000").split(",")
-    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in allowed_origins if o.strip()],
@@ -134,7 +133,6 @@ def create_app() -> FastAPI:
         for router in routers:
             app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
 
-    def _include_optional(module_path: str, label: str, prefix: str = "", include_in_schema: bool = True) -> None:
     # Inclure les routeurs
     app.include_router(auth.router)
     app.include_router(tenants.router)
@@ -176,16 +174,6 @@ def create_app() -> FastAPI:
     # Pipeline reco/audit/export
     app.include_router(reco_pipeline.router)
 
-    def _include_optional(module_path: str, label: str) -> None:
-        """Inclut un routeur optionnel sans casser le démarrage si le module manque."""
-        logger = logging.getLogger(__name__)
-        try:
-            module = importlib.import_module(module_path)
-            router = getattr(module, "router")
-            app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
-        except Exception as exc:  # pragma: no cover - import errors only
-            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
-
     # Inclure les routeurs sans préfixe (compatibilité)
     _include_core_routes()
     _include_optional("backend.app.routers.etl", "etl")
@@ -195,13 +183,7 @@ def create_app() -> FastAPI:
     _include_core_routes(prefix="/api", include_in_schema=False)
     _include_optional("backend.app.routers.etl", "etl", prefix="/api", include_in_schema=False)
     _include_optional("backend.app.routers.brevo", "brevo", prefix="/api", include_in_schema=False)
-            app.include_router(router)
-        except Exception as exc:  # pragma: no cover - import errors only
-            logger.warning("Module optionnel %s non chargé (%s)", label, exc)
 
-    # Routers optionnels : ETL et Brevo peuvent manquer selon l'environnement
-    _include_optional("backend.app.routers.etl", "etl")
-    _include_optional("backend.app.routers.brevo", "brevo")
 
     @app.get("/")
     def read_root():

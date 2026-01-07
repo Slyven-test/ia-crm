@@ -130,7 +130,7 @@ class Product(Base):
 
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
-    product_key = Column(String, unique=False, index=True)
+    product_key = Column(String, unique=True, index=True)
     name = Column(String, nullable=False)
     family_crm = Column(String, nullable=True)
     sub_family = Column(String, nullable=True)

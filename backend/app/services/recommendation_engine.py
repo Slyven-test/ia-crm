@@ -427,33 +427,6 @@ def generate_recommendations_run(
                     tenant_id=tenant_id,
                 )
             )
-            )
-
-        issues, audit_score, is_eligible, reason = audit_client(
-            client,
-            recos,
-            product_map,
-            contacts_by_client.get(client.id, []),
-            purchases,
-            silence_window_days=silence_window_days,
-        )
-        for issue in issues:
-            if issue.get("severity") == "ERROR":
-                total_errors += 1
-            else:
-                total_warns += 1
-            audit_issues_counter[issue["rule_code"]] += 1
-            db.add(
-                AuditOutput(
-                    run_id=run.run_id,
-                    customer_code=client.client_code,
-                    severity=issue["severity"],
-                    rule_code=issue["rule_code"],
-                    details_json=json.dumps(issue.get("details", {})),
-                    tenant_id=tenant_id,
-                )
-            )
-            )
 
         issues, audit_score, is_eligible, reason = audit_client(
             client,

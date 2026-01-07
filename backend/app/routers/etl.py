@@ -137,3 +137,13 @@ def get_etl_state() -> dict:
     if not state:
         return {"last_run_at": None, "results": []}
     return state
+
+
+# --- compat shim (required by app.tasks) ---
+def run_etl_for_tenants(*args, **kwargs):
+    """Compatibility shim for Celery imports.
+    If you need real multi-tenant ETL execution, implement it properly here.
+    """
+    import logging
+    logging.getLogger(__name__).warning("run_etl_for_tenants shim called (no-op). args=%s kwargs=%s", args, kwargs)
+    return {"status": "noop"}

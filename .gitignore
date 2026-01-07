@@ -18,3 +18,5 @@ frontend/src/**/*.js
 # Config locale
 .env
 _bak/
+.env.prod
+AGENTS.md
