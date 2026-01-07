@@ -17,3 +17,4 @@ frontend/src/**/*.js
 
 # Config locale
 .env
+_bak/
