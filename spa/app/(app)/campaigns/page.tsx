@@ -23,13 +23,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
-import { formatNumber, humanizeKey } from "@/lib/format";
+import { humanizeKey } from "@/lib/format";
 
 type CampaignBatchPayload = {
   run_id?: string;
   template_id: string;
   batch_size?: number;
   preview_only?: boolean;
+  dryRun?: boolean;
+  segment_id?: string;
   segment?: string;
   cluster?: string;
 };
@@ -148,11 +150,6 @@ export default function CampaignsPage() {
       apiRequest<Record<string, number>>(endpoints.clusters.list),
   });
 
-  const segmentsQuery = useQuery({
-    queryKey: ["rfm", "distribution"],
-    queryFn: () => apiRequest<Record<string, number>>(endpoints.rfm.distribution),
-  });
-
   const campaignId = form.campaignId.trim();
   const statsQuery = useQuery({
     queryKey: ["campaigns", "stats", campaignId],
@@ -239,21 +236,6 @@ export default function CampaignsPage() {
     return Object.keys(data).sort();
   }, [clustersQuery.data]);
 
-  const segmentOptions = useMemo(() => {
-    const data = segmentsQuery.data ?? {};
-    return Object.keys(data).sort();
-  }, [segmentsQuery.data]);
-
-  const selectedSegment = form.segment.trim();
-  const segmentEstimate = useMemo(() => {
-    if (!selectedSegment) return null;
-    const count = segmentsQuery.data?.[selectedSegment];
-    return typeof count === "number" ? count : null;
-  }, [segmentsQuery.data, selectedSegment]);
-
-  const segmentsErrorMessage = segmentsQuery.isError
-    ? getErrorMessage(segmentsQuery.error, "Impossible de charger les segments.")
-    : null;
   const clustersErrorMessage = clustersQuery.isError
     ? getErrorMessage(clustersQuery.error, "Impossible de charger les clusters.")
     : null;
@@ -263,6 +245,7 @@ export default function CampaignsPage() {
 
   const hasTemplate = form.templateId.trim().length > 0;
   const defaultBatchSize = 200;
+  const minBatchSize = 1;
   const maxBatchSize = 300;
   const rawBatchSize = form.batchSize.trim();
   const batchSizeValue = Number(rawBatchSize);
@@ -273,18 +256,21 @@ export default function CampaignsPage() {
   const batchSizeError =
     batchSize > maxBatchSize
       ? `Le batch size ne peut pas depasser ${maxBatchSize}.`
+      : batchSize < minBatchSize
+      ? "Le batch size doit etre superieur ou egal a 1."
       : null;
-  const safeBatchSize = Math.min(batchSize, maxBatchSize);
-  const canSubmit = hasTemplate && !batchSizeError;
+  const canSubmit = hasTemplate;
 
   const basePayload: CampaignBatchPayload = {
     template_id: form.templateId.trim(),
-    batch_size: safeBatchSize,
+    batch_size: batchSize,
+    dryRun: form.dryRun,
   };
   if (form.runId.trim()) {
     basePayload.run_id = form.runId.trim();
   }
   if (form.targetType === "segment" && form.segment.trim()) {
+    basePayload.segment_id = form.segment.trim();
     basePayload.segment = form.segment.trim();
   }
   if (form.targetType === "cluster" && form.cluster.trim()) {
@@ -297,11 +283,19 @@ export default function CampaignsPage() {
     statsQuery.isFetching;
 
   const handlePreview = () => {
+    if (batchSizeError) {
+      toast.error(batchSizeError);
+      return;
+    }
     const payload = { ...basePayload, preview_only: true };
     previewMutation.mutate(payload);
   };
 
   const handleSend = () => {
+    if (batchSizeError) {
+      toast.error(batchSizeError);
+      return;
+    }
     const payload = { ...basePayload, preview_only: form.dryRun };
     sendMutation.mutate(payload);
   };
@@ -416,11 +410,11 @@ export default function CampaignsPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="batch-size">Batch size (200-300)</Label>
+                <Label htmlFor="batch-size">Batch size (1-300)</Label>
                 <Input
                   id="batch-size"
                   type="number"
-                  min={200}
+                  min={1}
                   max={300}
                   value={form.batchSize}
                   onChange={(event) =>
@@ -434,72 +428,27 @@ export default function CampaignsPage() {
                   <p className="text-xs text-destructive">{batchSizeError}</p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Max 300 contacts par batch. Defaut: 200.
+                    200–300 recommande. Max 300 (securite).
                   </p>
                 )}
               </div>
               {form.targetType === "segment" && (
                 <div className="space-y-2 sm:col-span-3">
                   <Label htmlFor="segment">Audience (segment)</Label>
-                  {segmentsQuery.isLoading ? (
-                    <Skeleton className="h-9 w-full" />
-                  ) : segmentsQuery.isError ? (
-                    <>
-                      <ErrorState message={segmentsErrorMessage ?? ""} />
-                      <Input
-                        id="segment"
-                        value={form.segment}
-                        onChange={(event) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            segment: event.target.value,
-                          }))
-                        }
-                        placeholder="Segment (ex: VIP)"
-                      />
-                    </>
-                  ) : segmentOptions.length ? (
-                    <select
-                      id="segment"
-                      value={form.segment}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          segment: event.target.value,
-                        }))
-                      }
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                    >
-                      <option value="">Selectionner un segment</option>
-                      {segmentOptions.map((segment) => (
-                        <option key={segment} value={segment}>
-                          {segment} ({segmentsQuery.data?.[segment] ?? 0})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      id="segment"
-                      value={form.segment}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          segment: event.target.value,
-                        }))
-                      }
-                      placeholder="Segment (ex: VIP)"
-                    />
-                  )}
+                  <Input
+                    id="segment"
+                    value={form.segment}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        segment: event.target.value,
+                      }))
+                    }
+                    placeholder="ID du segment (ex: 12)"
+                  />
                   <p className="text-xs text-muted-foreground">
-                    {segmentsQuery.isError || !segmentOptions.length
-                      ? "Saisissez l'identifiant du segment a cibler."
-                      : "Selectionnez un segment pour definir l'audience."}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Estimation audience:{" "}
-                    {segmentEstimate !== null
-                      ? formatNumber(segmentEstimate)
-                      : "—"}
+                    ID du segment (issu de Segmentation). Laisser vide pour
+                    tous les clients.
                   </p>
                 </div>
               )}
@@ -545,6 +494,7 @@ export default function CampaignsPage() {
                 </div>
               )}
             </div>
+            {batchSizeError ? <ErrorState message={batchSizeError} /> : null}
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm">
                 <input
