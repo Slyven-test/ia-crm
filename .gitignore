@@ -34,3 +34,10 @@ __pycache__/
 
 # --- Next runtime ---
 spa/.next/
+
+# --- runtime data (local) ---
+exports/
+imports/
+reco_output.csv
+*.bak
+*.bak.*
