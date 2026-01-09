@@ -153,12 +153,12 @@ export default function CustomersPage() {
       ...headers.map((header) => ({
         accessorKey: header,
         header: humanizeKey(header),
-        cell: ({ row }) => formatCellValue(row.original[header]),
+        cell: ({ row }: { row: { original: CustomerRow } }) => formatCellValue(row.original[header]),
       })),
       {
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => (
+        cell: ({ row }: { row: { original: CustomerRow } }) => (
           <Button
             size="sm"
             variant="outline"
