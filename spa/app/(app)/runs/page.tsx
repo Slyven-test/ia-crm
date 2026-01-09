@@ -61,14 +61,10 @@ function getRunId(run: RunRow): string | number | null {
   return null;
 }
 
-function getRunExportId(run: RunRow): string | null {
-  if (typeof run.run_id === "string" && run.run_id.trim()) {
-    return run.run_id;
-  }
-  if (typeof run.run_id === "number") {
-    return String(run.run_id);
-  }
-  return null;
+function getRunExportId(run: RunRow): string | number | null {
+  const runId = getRunId(run);
+  if (typeof runId === "string" && !runId.trim()) return null;
+  return runId;
 }
 
 function pickValue<T>(
@@ -415,7 +411,7 @@ export default function RunsPage() {
   const summaryQuery = useQuery({
     queryKey: ["reco-runs", exportRunId, "summary"],
     queryFn: () => apiRequest<unknown>(endpoints.export.runSummary(exportRunId!)),
-    enabled: Boolean(exportRunId),
+    enabled: exportRunId !== null,
   });
 
   const columns = useMemo<ColumnDef<RunRow>[]>(
