@@ -36,17 +36,35 @@ function storeToken(token: string | null) {
   }
 }
 
-function buildHeaders(init?: RequestInit) {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isJsonBody(
+  value: unknown
+): value is Record<string, unknown> | unknown[] {
+  if (!value || typeof value !== "object") return false;
+  if (typeof FormData !== "undefined" && value instanceof FormData) return false;
+  if (typeof URLSearchParams !== "undefined" && value instanceof URLSearchParams)
+    return false;
+  if (typeof Blob !== "undefined" && value instanceof Blob) return false;
+  if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer)
+    return false;
+  if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value))
+    return false;
+  if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream)
+    return false;
+  return isPlainObject(value) || Array.isArray(value);
+}
+
+function buildHeaders(init?: RequestInit & { body?: unknown }) {
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
-  if (
-    init?.body &&
-    typeof init.body === "object" &&
-    !(init.body instanceof FormData) &&
-    !headers.has("Content-Type")
-  ) {
+  if (init?.body && isJsonBody(init.body) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   return headers;
@@ -75,7 +93,10 @@ async function refreshToken() {
   return null;
 }
 
-type ApiRequestOptions = RequestInit & {
+type ApiRequestBody = BodyInit | Record<string, unknown> | unknown[] | null;
+
+type ApiRequestOptions = Omit<RequestInit, "body"> & {
+  body?: ApiRequestBody;
   timeoutMs?: number;
   skipAuth?: boolean;
   skipRefresh?: boolean;
@@ -102,12 +123,9 @@ export async function apiRequest<T>(
       headers,
       credentials: "include",
       signal: controller.signal,
-      body:
-        init.body &&
-        typeof init.body === "object" &&
-        !(init.body instanceof FormData)
-          ? JSON.stringify(init.body)
-          : init.body,
+      body: init.body && isJsonBody(init.body)
+        ? JSON.stringify(init.body)
+        : init.body,
     });
 
     if (response.status === 401 && !skipRefresh) {
