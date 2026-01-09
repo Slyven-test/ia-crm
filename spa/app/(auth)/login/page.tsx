@@ -71,8 +71,8 @@ export default function LoginPage() {
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
-                type="email"
-                autoComplete="email"
+                type="text"
+                autoComplete="username"
                 placeholder="email@entreprise.fr"
                 value={form.email}
                 onChange={(event) =>
