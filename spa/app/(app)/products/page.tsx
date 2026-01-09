@@ -88,7 +88,7 @@ export default function ProductsPage() {
         accessorKey: key,
         header: formatHeaderLabel(key),
         cell: (ctx: CellContext<ProductRow, ProductValue>) => {
-          const value = ctx.getValue() as ProductValue;
+          const value = ctx.getValue();
           return (
             <span className="text-sm text-foreground">
               {formatCellValue(value)}
