@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
-import { humanizeKey } from "@/lib/format";
+import { formatNumber, humanizeKey } from "@/lib/format";
 
 type CampaignBatchPayload = {
   run_id?: string;
@@ -244,12 +244,42 @@ export default function CampaignsPage() {
     return Object.keys(data).sort();
   }, [segmentsQuery.data]);
 
+  const selectedSegment = form.segment.trim();
+  const segmentEstimate = useMemo(() => {
+    if (!selectedSegment) return null;
+    const count = segmentsQuery.data?.[selectedSegment];
+    return typeof count === "number" ? count : null;
+  }, [segmentsQuery.data, selectedSegment]);
+
+  const segmentsErrorMessage = segmentsQuery.isError
+    ? getErrorMessage(segmentsQuery.error, "Impossible de charger les segments.")
+    : null;
+  const clustersErrorMessage = clustersQuery.isError
+    ? getErrorMessage(clustersQuery.error, "Impossible de charger les clusters.")
+    : null;
+  const statsErrorMessage = statsQuery.isError
+    ? getErrorMessage(statsQuery.error, "Impossible de charger les stats.")
+    : null;
+
   const hasTemplate = form.templateId.trim().length > 0;
-  const batchSizeValue = Number(form.batchSize);
-  const batchSize = Number.isFinite(batchSizeValue) ? batchSizeValue : 200;
+  const defaultBatchSize = 200;
+  const maxBatchSize = 300;
+  const rawBatchSize = form.batchSize.trim();
+  const batchSizeValue = Number(rawBatchSize);
+  const normalizedBatchSize = Number.isFinite(batchSizeValue)
+    ? batchSizeValue
+    : defaultBatchSize;
+  const batchSize = rawBatchSize ? normalizedBatchSize : defaultBatchSize;
+  const batchSizeError =
+    batchSize > maxBatchSize
+      ? `Le batch size ne peut pas depasser ${maxBatchSize}.`
+      : null;
+  const safeBatchSize = Math.min(batchSize, maxBatchSize);
+  const canSubmit = hasTemplate && !batchSizeError;
+
   const basePayload: CampaignBatchPayload = {
     template_id: form.templateId.trim(),
-    batch_size: batchSize,
+    batch_size: safeBatchSize,
   };
   if (form.runId.trim()) {
     basePayload.run_id = form.runId.trim();
@@ -381,7 +411,7 @@ export default function CampaignsPage() {
                   className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                 >
                   <option value="all">Tous les contacts eligibles</option>
-                  <option value="segment">Segment RFM</option>
+                  <option value="segment">Audience (segment)</option>
                   <option value="cluster">Cluster</option>
                 </select>
               </div>
@@ -400,14 +430,34 @@ export default function CampaignsPage() {
                     }))
                   }
                 />
+                {batchSizeError ? (
+                  <p className="text-xs text-destructive">{batchSizeError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Max 300 contacts par batch. Defaut: 200.
+                  </p>
+                )}
               </div>
               {form.targetType === "segment" && (
                 <div className="space-y-2 sm:col-span-3">
-                  <Label htmlFor="segment">Segment RFM</Label>
+                  <Label htmlFor="segment">Audience (segment)</Label>
                   {segmentsQuery.isLoading ? (
                     <Skeleton className="h-9 w-full" />
                   ) : segmentsQuery.isError ? (
-                    <ErrorState message="Impossible de charger les segments RFM." />
+                    <>
+                      <ErrorState message={segmentsErrorMessage ?? ""} />
+                      <Input
+                        id="segment"
+                        value={form.segment}
+                        onChange={(event) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            segment: event.target.value,
+                          }))
+                        }
+                        placeholder="Segment (ex: VIP)"
+                      />
+                    </>
                   ) : segmentOptions.length ? (
                     <select
                       id="segment"
@@ -437,9 +487,20 @@ export default function CampaignsPage() {
                           segment: event.target.value,
                         }))
                       }
-                      placeholder="Segment RFM (ex: VIP)"
+                      placeholder="Segment (ex: VIP)"
                     />
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    {segmentsQuery.isError || !segmentOptions.length
+                      ? "Saisissez l'identifiant du segment a cibler."
+                      : "Selectionnez un segment pour definir l'audience."}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Estimation audience:{" "}
+                    {segmentEstimate !== null
+                      ? formatNumber(segmentEstimate)
+                      : "—"}
+                  </p>
                 </div>
               )}
               {form.targetType === "cluster" && (
@@ -448,7 +509,7 @@ export default function CampaignsPage() {
                   {clustersQuery.isLoading ? (
                     <Skeleton className="h-9 w-full" />
                   ) : clustersQuery.isError ? (
-                    <ErrorState message="Impossible de charger les clusters." />
+                    <ErrorState message={clustersErrorMessage ?? ""} />
                   ) : clusterOptions.length ? (
                     <select
                       id="cluster"
@@ -497,19 +558,19 @@ export default function CampaignsPage() {
                   }
                   className="h-4 w-4 rounded border border-input"
                 />
-                Mode safe (dry run) : aucun envoi reel
+                Mode safe (dry run) : aucun envoi reel, active par defaut
               </label>
               <div className="flex flex-1 items-center justify-end gap-2">
                 <Button
                   variant="outline"
                   onClick={handlePreview}
-                  disabled={!hasTemplate || previewMutation.isPending}
+                  disabled={!canSubmit || previewMutation.isPending}
                 >
                   {previewMutation.isPending ? "Chargement..." : "Previsualiser"}
                 </Button>
                 <Button
                   onClick={handleSend}
-                  disabled={!hasTemplate || sendMutation.isPending}
+                  disabled={!canSubmit || sendMutation.isPending}
                 >
                   {sendMutation.isPending
                     ? "Envoi..."
@@ -649,7 +710,7 @@ export default function CampaignsPage() {
               {statsQuery.isLoading ? (
                 <Skeleton className="h-24 w-full" />
               ) : statsQuery.isError ? (
-                <ErrorState message="Impossible de charger les stats." />
+                <ErrorState message={statsErrorMessage ?? ""} />
               ) : statsQuery.data ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {Object.entries(statsQuery.data).map(([key, value]) => (
