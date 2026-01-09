@@ -59,13 +59,16 @@ function isJsonBody(
   return isPlainObject(value) || Array.isArray(value);
 }
 
-function buildHeaders(init?: RequestInit & { body?: unknown }) {
-  const headers = new Headers(init?.headers ?? {});
+type HeaderInitInput = HeadersInit | { headers?: HeadersInit };
+
+function buildHeaders(input?: HeaderInitInput) {
+  const initHeaders =
+    input && typeof input === "object" && "headers" in input
+      ? (input as { headers?: HeadersInit }).headers
+      : (input as HeadersInit | undefined);
+  const headers = new Headers(initHeaders ?? {});
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
-  }
-  if (init?.body && isJsonBody(init.body) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
   }
   return headers;
 }
@@ -95,7 +98,8 @@ async function refreshToken() {
 
 type ApiRequestBody = BodyInit | Record<string, unknown> | unknown[] | null;
 
-type ApiRequestOptions = Omit<RequestInit, "body"> & {
+type ApiRequestOptions = Omit<RequestInit, "body" | "headers"> & {
+  headers?: HeadersInit;
   body?: ApiRequestBody;
   timeoutMs?: number;
   skipAuth?: boolean;
@@ -107,8 +111,25 @@ export async function apiRequest<T>(
   options: ApiRequestOptions = {}
 ): Promise<T> {
   loadStoredToken();
-  const { timeoutMs = 15_000, skipAuth, skipRefresh, ...init } = options;
-  const headers = buildHeaders(init);
+  const {
+    body,
+    headers: headersInit,
+    timeoutMs = 15_000,
+    skipAuth,
+    skipRefresh,
+    ...rest
+  } = options;
+  const headers = buildHeaders(headersInit);
+  const normalizedBody =
+    typeof body === "undefined"
+      ? null
+      : isJsonBody(body)
+        ? JSON.stringify(body)
+        : body;
+
+  if (body && isJsonBody(body) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   if (!skipAuth && accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
@@ -119,13 +140,11 @@ export async function apiRequest<T>(
 
   try {
     const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
+      ...rest,
       headers,
       credentials: "include",
       signal: controller.signal,
-      body: init.body && isJsonBody(init.body)
-        ? JSON.stringify(init.body)
-        : init.body,
+      body: normalizedBody,
     });
 
     if (response.status === 401 && !skipRefresh) {
