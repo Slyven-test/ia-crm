@@ -8,18 +8,14 @@ step() {
   echo "==> $1"
 }
 
-step "pytest -q"
-cd "$ROOT_DIR"
-pytest -q
+step "./scripts/http_smoke.sh (local)"
+BASE_URL="http://127.0.0.1:3000" "$ROOT_DIR/scripts/http_smoke.sh"
 
-step "./scripts/api_smoke.sh"
-"$ROOT_DIR/scripts/api_smoke.sh"
+step "./scripts/http_smoke.sh (proxy local)"
+BASE_URL="https://127.0.0.1" HOST_HEADER="app.ia-crm.aubach.fr" "$ROOT_DIR/scripts/http_smoke.sh"
 
-step "./scripts/ui_smoke.sh"
-"$ROOT_DIR/scripts/ui_smoke.sh"
-
-step "./scripts/compose_smoke.sh"
-"$ROOT_DIR/scripts/compose_smoke.sh"
+step "./scripts/http_smoke.sh (public)"
+BASE_URL="https://app.ia-crm.aubach.fr" "$ROOT_DIR/scripts/http_smoke.sh"
 
 echo
 echo "✅ Full smoke completed"
