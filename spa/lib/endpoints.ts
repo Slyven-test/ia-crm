@@ -29,6 +29,9 @@ export const endpoints = {
     outcomes: "/analytics/outcomes",
     salesTrend: "/analytics/sales-trend",
   },
+  sales: {
+    customerHistory: (clientCode: string) => `/sales/customer/${clientCode}`,
+  },
   audit: {
     latest: "/audit/latest",
     logs: "/audit/logs",
