@@ -1,6 +1,6 @@
 "use client";
 
-import { type ColumnDef } from "@tanstack/react-table";
+import { type CellContext, type ColumnDef } from "@tanstack/react-table";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
@@ -87,8 +87,8 @@ export default function ProductsPage() {
       ...columnKeys.map((key) => ({
         accessorKey: key,
         header: formatHeaderLabel(key),
-        cell: ({ getValue }) => {
-          const value = getValue() as ProductValue;
+        cell: (ctx: CellContext<ProductRow, ProductValue>) => {
+          const value = ctx.getValue() as ProductValue;
           return (
             <span className="text-sm text-foreground">
               {formatCellValue(value)}
@@ -99,11 +99,11 @@ export default function ProductsPage() {
       {
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => (
+        cell: (ctx: CellContext<ProductRow, unknown>) => (
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleViewDetails(row.original)}
+            onClick={() => handleViewDetails(ctx.row.original)}
           >
             Voir details
           </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ColumnDef } from "@tanstack/react-table";
+import { type CellContext, type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { toast } from "sonner";
@@ -22,14 +22,36 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
-import { formatDate, formatNumber } from "@/lib/format";
+import { formatDate, formatNumber, humanizeKey } from "@/lib/format";
 
 type ImportRun = Record<string, unknown>;
 
 const importEndpoints = {
-  state: "/etl/state",
-  ingest: "/etl/ingest",
+  status: "/etl/state",
+  trigger: "/etl/ingest",
 };
+
+const reservedImportKeys = new Set([
+  "tenant_id",
+  "tenant",
+  "tenant_name",
+  "name",
+  "success",
+  "status",
+  "state",
+  "total_duration",
+  "duration_s",
+  "duration",
+  "duration_ms",
+  "duration_msec",
+  "elapsed_ms",
+  "total_rows",
+  "total_success",
+  "total_failed",
+  "ingested_files",
+  "curated_files",
+  "verification",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -150,6 +172,26 @@ function getFilesSummary(run: ImportRun) {
   return parts.join(" · ");
 }
 
+function formatDynamicValue(value: unknown) {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "number") return formatNumber(value);
+  if (typeof value === "string") return value.trim() === "" ? "-" : value;
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (Array.isArray(value)) {
+    return value.length === 0
+      ? "0 element"
+      : `${formatNumber(value.length)} elements`;
+  }
+  if (isRecord(value)) return JSON.stringify(value);
+  return String(value);
+}
+
+function formatDynamicCell(value: unknown) {
+  return (
+    <span className="text-sm text-foreground">{formatDynamicValue(value)}</span>
+  );
+}
+
 function formatDuration(seconds: number | null) {
   if (!seconds || seconds <= 0) return "-";
   const totalSeconds = Math.round(seconds);
@@ -213,7 +255,7 @@ function normalizeTenantIds(tenants: unknown, runs: ImportRun[]) {
 export default function ImportsPage() {
   const stateQuery = useQuery({
     queryKey: ["etl-state"],
-    queryFn: () => apiRequest<unknown>(importEndpoints.state),
+    queryFn: () => apiRequest<unknown>(importEndpoints.status),
   });
 
   const tenantsQuery = useQuery({
@@ -230,7 +272,7 @@ export default function ImportsPage() {
 
   const ingestMutation = useMutation({
     mutationFn: async (tenants: string[]) =>
-      apiRequest(importEndpoints.ingest, {
+      apiRequest(importEndpoints.trigger, {
         method: "POST",
         body: { tenants, isolate_schema: false },
       }),
@@ -251,32 +293,45 @@ export default function ImportsPage() {
     },
   });
 
+  const dynamicKeys = useMemo(() => {
+    const keys = new Set<string>();
+    rows.forEach((run) => {
+      Object.keys(run).forEach((key) => {
+        if (!reservedImportKeys.has(key)) keys.add(key);
+      });
+    });
+    return Array.from(keys).sort((left, right) => left.localeCompare(right, "fr"));
+  }, [rows]);
+
   const columns = useMemo<ColumnDef<ImportRun>[]>(
     () => [
       {
         id: "tenant",
         header: "Tenant",
         accessorFn: (row) => getTenantLabel(row) ?? "-",
-        cell: ({ row }) => getTenantLabel(row.original) ?? "-",
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          getTenantLabel(ctx.row.original) ?? "-",
       },
       {
         id: "status",
         header: "Statut",
         accessorFn: (row) => getSuccessValue(row),
-        cell: ({ row }) => getStatusBadge(getSuccessValue(row.original)),
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          getStatusBadge(getSuccessValue(ctx.row.original)),
       },
       {
         id: "duration",
         header: "Duree",
         accessorFn: (row) => getDurationSeconds(row),
-        cell: ({ row }) => formatDuration(getDurationSeconds(row.original)),
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          formatDuration(getDurationSeconds(ctx.row.original)),
       },
       {
         id: "rows",
         header: "Lignes",
         accessorFn: (row) => getVerificationMetric(row, "total_rows"),
-        cell: ({ row }) => {
-          const value = getVerificationMetric(row.original, "total_rows");
+        cell: (ctx: CellContext<ImportRun, unknown>) => {
+          const value = getVerificationMetric(ctx.row.original, "total_rows");
           return value === null ? "-" : formatNumber(value);
         },
       },
@@ -284,8 +339,8 @@ export default function ImportsPage() {
         id: "tables_ok",
         header: "Tables ok",
         accessorFn: (row) => getVerificationMetric(row, "total_success"),
-        cell: ({ row }) => {
-          const value = getVerificationMetric(row.original, "total_success");
+        cell: (ctx: CellContext<ImportRun, unknown>) => {
+          const value = getVerificationMetric(ctx.row.original, "total_success");
           return value === null ? "-" : formatNumber(value);
         },
       },
@@ -293,8 +348,8 @@ export default function ImportsPage() {
         id: "tables_ko",
         header: "Tables ko",
         accessorFn: (row) => getVerificationMetric(row, "total_failed"),
-        cell: ({ row }) => {
-          const value = getVerificationMetric(row.original, "total_failed");
+        cell: (ctx: CellContext<ImportRun, unknown>) => {
+          const value = getVerificationMetric(ctx.row.original, "total_failed");
           return value === null ? "-" : formatNumber(value);
         },
       },
@@ -302,10 +357,20 @@ export default function ImportsPage() {
         id: "files",
         header: "Fichiers",
         accessorFn: (row) => getFilesSummary(row),
-        cell: ({ row }) => getFilesSummary(row.original),
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          getFilesSummary(ctx.row.original),
       },
+      ...dynamicKeys.map(
+        (key): ColumnDef<ImportRun> => ({
+          id: `raw-${key}`,
+          header: humanizeKey(key),
+          accessorFn: (row) => row[key],
+          cell: (ctx: CellContext<ImportRun, unknown>) =>
+            formatDynamicCell(ctx.getValue()),
+        })
+      ),
     ],
-    []
+    [dynamicKeys]
   );
 
   const hasRows = rows.length > 0;
