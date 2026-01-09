@@ -2,7 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table";
@@ -21,47 +21,42 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
-import { formatDate, humanizeKey } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 
-type ExportSource = {
-  key: string;
-  label: string;
-  description: string;
-  path: string;
+type RecoRun = {
+  id?: string | number;
+  run_id?: string | number;
+  executed_at?: string;
+  created_at?: string;
+  status?: string;
 };
 
-type ExportAction = {
-  id: string;
-  label: string;
-  path: string;
+type ExportOverview = {
+  counts: {
+    recommendations?: number | null;
+    audit?: number | null;
+  };
+  fallbackSources: string[];
+};
+
+type DownloadTarget = {
+  endpoint: string;
   filename: string;
-  format: "csv" | "json";
+  accept: string;
+  parseAsJson?: boolean;
 };
 
-type ExportRow = Record<string, unknown> & {
-  actions?: ExportAction[];
+type ExportRow = {
+  id: string;
+  export: string;
+  description: string;
+  format: string;
+  scope: string;
+  run: string;
+  count?: number | null;
+  status: string;
+  download?: DownloadTarget;
 };
-
-type ExportsPayload = {
-  rows: ExportRow[];
-  headers: string[];
-  sourceNote?: string;
-};
-
-const EXPORT_SOURCES: ExportSource[] = [
-  {
-    key: "recommendations",
-    label: "Recommandations",
-    description: "Recommandations generees pour le tenant courant.",
-    path: endpoints.export.recommendations,
-  },
-  {
-    key: "audit",
-    label: "Audit",
-    description: "Journal d'audit exportable (erreurs, scores, details).",
-    path: endpoints.export.audit,
-  },
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -72,42 +67,21 @@ function normalizeRows(value: unknown): Record<string, unknown>[] {
     return value.filter(isRecord);
   }
   if (isRecord(value)) {
-    const candidates = ["items", "results", "data", "rows"];
+    const candidates = ["items", "results", "data"];
     for (const key of candidates) {
       if (Array.isArray(value[key])) {
-        return (value[key] as unknown[]).filter(isRecord);
+        return value[key].filter(isRecord);
       }
     }
   }
   return [];
 }
 
-function buildHeaders(rows: ExportRow[]): string[] {
-  const headers: string[] = [];
-  const seen = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      if (key === "actions") continue;
-      if (!seen.has(key)) {
-        seen.add(key);
-        headers.push(key);
-      }
-    }
-  }
-  return headers;
-}
-
-function formatCellValue(value: unknown, key: string) {
+function formatCellValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string" || typeof value === "number") {
-    const normalizedKey = key.toLowerCase();
-    if (normalizedKey.includes("date") || normalizedKey.endsWith("_at")) {
-      return formatDate(value);
-    }
-    return String(value);
-  }
+  if (typeof value === "number") return formatNumber(value);
+  if (typeof value === "string") return value;
   if (typeof value === "boolean") return value ? "Oui" : "Non";
-  if (Array.isArray(value)) return `${value.length}`;
   try {
     return JSON.stringify(value);
   } catch {
@@ -115,181 +89,304 @@ function formatCellValue(value: unknown, key: string) {
   }
 }
 
-function triggerDownload(content: string, filename: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
+async function fetchLatestRun(): Promise<RecoRun | null> {
+  const data = await apiRequest<RecoRun[]>(
+    `${endpoints.recoRuns.list}?limit=1`
+  );
+  return data[0] ?? null;
+}
+
+async function fetchExportOverview(): Promise<ExportOverview> {
+  const fallbackSources: string[] = [];
+  const counts: ExportOverview["counts"] = {};
+
+  const results = await Promise.allSettled([
+    apiRequest<unknown>(`${endpoints.export.recommendations}?format=json`),
+    apiRequest<unknown>(`${endpoints.export.audit}?format=json`),
+  ]);
+
+  const [recommendationsResult, auditResult] = results;
+
+  if (recommendationsResult.status === "fulfilled") {
+    counts.recommendations = normalizeRows(recommendationsResult.value).length;
+  } else if (
+    recommendationsResult.reason instanceof ApiError &&
+    [404, 405, 501].includes(recommendationsResult.reason.status)
+  ) {
+    counts.recommendations = null;
+    fallbackSources.push("export recommendations");
+  } else {
+    throw recommendationsResult.reason;
+  }
+
+  if (auditResult.status === "fulfilled") {
+    counts.audit = normalizeRows(auditResult.value).length;
+  } else if (
+    auditResult.reason instanceof ApiError &&
+    [404, 405, 501].includes(auditResult.reason.status)
+  ) {
+    counts.audit = null;
+    fallbackSources.push("export audit");
+  } else {
+    throw auditResult.reason;
+  }
+
+  return { counts, fallbackSources };
+}
+
+function triggerDownload(payload: string, filename: string, mimeType: string) {
+  const blob = new Blob([payload], { type: mimeType });
+  const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-async function fetchExports(): Promise<ExportsPayload> {
-  const fallbackSources: string[] = [];
-
-  const rows = await Promise.all(
-    EXPORT_SOURCES.map(async (source) => {
-      let recordCount: number | null = null;
-      let jsonAvailable = true;
-
-      try {
-        const jsonData = await apiRequest<unknown>(`${source.path}?format=json`);
-        recordCount = normalizeRows(jsonData).length;
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          [404, 405, 415, 501].includes(error.status)
-        ) {
-          jsonAvailable = false;
-          fallbackSources.push(`export ${source.key}`);
-        } else {
-          throw error;
-        }
-      }
-
-      const actions: ExportAction[] = [
-        {
-          id: `${source.key}-csv`,
-          label: "Telecharger CSV",
-          path: source.path,
-          filename: `${source.key}.csv`,
-          format: "csv",
-        },
-      ];
-
-      if (jsonAvailable) {
-        actions.push({
-          id: `${source.key}-json`,
-          label: "Telecharger JSON",
-          path: `${source.path}?format=json`,
-          filename: `${source.key}.json`,
-          format: "json",
-        });
-      }
-
-      return {
-        export: source.label,
-        description: source.description,
-        records: recordCount ?? "-",
-        formats: jsonAvailable ? "CSV, JSON" : "CSV",
-        actions,
-      } satisfies ExportRow;
-    })
-  );
-
-  const sourceNote = fallbackSources.length
-    ? `source: ${fallbackSources.join(", ")}`
-    : undefined;
-
-  return {
-    rows,
-    headers: buildHeaders(rows),
-    sourceNote,
-  };
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1_000);
 }
 
 export default function ExportsPage() {
-  const query = useQuery({
-    queryKey: ["exports", "sources"],
-    queryFn: fetchExports,
+  const [activeDownloadId, setActiveDownloadId] = useState<string | null>(null);
+  const latestRunQuery = useQuery({
+    queryKey: ["reco-runs", "latest"],
+    queryFn: fetchLatestRun,
+  });
+  const overviewQuery = useQuery({
+    queryKey: ["exports", "overview"],
+    queryFn: fetchExportOverview,
   });
 
   const downloadMutation = useMutation({
-    mutationFn: async (action: ExportAction) => {
-      if (action.format === "json") {
-        const data = await apiRequest<unknown>(action.path, {
+    mutationFn: async (row: ExportRow) => {
+      if (!row.download) {
+        throw new Error("Export indisponible.");
+      }
+      const { endpoint, filename, accept, parseAsJson } = row.download;
+      if (parseAsJson) {
+        const data = await apiRequest<unknown>(endpoint, {
           headers: { Accept: "application/json" },
         });
-        const payload =
-          typeof data === "string" ? data : JSON.stringify(data, null, 2);
-        triggerDownload(payload, action.filename, "application/json");
+        triggerDownload(JSON.stringify(data, null, 2), filename, "application/json");
         return;
       }
-
-      const csvText = await apiRequest<string>(action.path, {
-        headers: { Accept: "text/csv" },
+      const payload = await apiRequest<string>(endpoint, {
+        headers: { Accept: accept },
       });
-      triggerDownload(csvText, action.filename, "text/csv;charset=utf-8");
+      triggerDownload(payload, filename, accept);
     },
-    onSuccess: (_, action) => {
-      toast.success(`${action.label} termine.`);
+    onSuccess: (_, row) => {
+      toast.success(`Export ${row.export} telecharge.`);
     },
-    onError: () => {
-      toast.error("Impossible de telecharger l'export.");
+    onError: (_, row) => {
+      toast.error(
+        row?.export
+          ? `Impossible de telecharger ${row.export}.`
+          : "Impossible de telecharger l'export."
+      );
+    },
+    onSettled: () => {
+      setActiveDownloadId(null);
     },
   });
 
-  const pendingActionId = downloadMutation.variables?.id;
-  const isDownloading = downloadMutation.isPending;
+  const latestRunId =
+    latestRunQuery.data?.run_id ?? latestRunQuery.data?.id ?? null;
+  const runLabel = latestRunId ? String(latestRunId) : "-";
 
-  const columns = useMemo<ColumnDef<ExportRow>[]>(() => {
-    const headers = query.data?.headers ?? [];
-    const baseColumns = headers.map((header) => ({
-      accessorKey: header,
-      header: humanizeKey(header),
-      cell: ({ row }: { row: { original: ExportRow } }) =>
-        formatCellValue(row.original[header], header),
-    }));
+  const rows = useMemo<ExportRow[]>(() => {
+    const counts = overviewQuery.data?.counts ?? {};
+    const hasRun = Boolean(latestRunId);
 
     return [
-      ...baseColumns,
+      {
+        id: "recommendations",
+        export: "Recommandations",
+        description: "Export des recommandations clients.",
+        format: "CSV",
+        scope: "Tenant",
+        run: "-",
+        count: counts.recommendations ?? null,
+        status: "Disponible",
+        download: {
+          endpoint: `${endpoints.export.recommendations}?format=csv`,
+          filename: "recommendations.csv",
+          accept: "text/csv",
+        },
+      },
+      {
+        id: "audit",
+        export: "Audit",
+        description: "Export des journaux d'audit.",
+        format: "CSV",
+        scope: "Tenant",
+        run: "-",
+        count: counts.audit ?? null,
+        status: "Disponible",
+        download: {
+          endpoint: `${endpoints.export.audit}?format=csv`,
+          filename: "audit_logs.csv",
+          accept: "text/csv",
+        },
+      },
+      {
+        id: "reco_output",
+        export: "Reco output",
+        description: "Export complet des recommandations du run.",
+        format: "CSV",
+        scope: "Run",
+        run: runLabel,
+        status: hasRun ? "Disponible" : "Run manquant",
+        download: hasRun
+          ? {
+              endpoint: `/export/runs/${latestRunId}/reco_output.csv`,
+              filename: `reco_output_${latestRunId}.csv`,
+              accept: "text/csv",
+            }
+          : undefined,
+      },
+      {
+        id: "audit_output",
+        export: "Audit output",
+        description: "Export des regles et scores par client.",
+        format: "CSV",
+        scope: "Run",
+        run: runLabel,
+        status: hasRun ? "Disponible" : "Run manquant",
+        download: hasRun
+          ? {
+              endpoint: `/export/runs/${latestRunId}/audit_output.csv`,
+              filename: `audit_output_${latestRunId}.csv`,
+              accept: "text/csv",
+            }
+          : undefined,
+      },
+      {
+        id: "next_action_output",
+        export: "Next action",
+        description: "Export des eligibilites et actions proposees.",
+        format: "CSV",
+        scope: "Run",
+        run: runLabel,
+        status: hasRun ? "Disponible" : "Run manquant",
+        download: hasRun
+          ? {
+              endpoint: `/export/runs/${latestRunId}/next_action_output.csv`,
+              filename: `next_action_${latestRunId}.csv`,
+              accept: "text/csv",
+            }
+          : undefined,
+      },
+      {
+        id: "run_summary",
+        export: "Run summary",
+        description: "Resume JSON avec gating et scores.",
+        format: "JSON",
+        scope: "Run",
+        run: runLabel,
+        status: hasRun ? "Disponible" : "Run manquant",
+        download: hasRun
+          ? {
+              endpoint: `/export/runs/${latestRunId}/run_summary.json`,
+              filename: `run_summary_${latestRunId}.json`,
+              accept: "application/json",
+              parseAsJson: true,
+            }
+          : undefined,
+      },
+    ];
+  }, [latestRunId, overviewQuery.data?.counts, runLabel]);
+
+  const columns = useMemo<ColumnDef<ExportRow>[]>(
+    () => [
+      {
+        accessorKey: "export",
+        header: "Export",
+        cell: ({ row }) => (
+          <div className="space-y-1">
+            <div className="font-medium">{row.original.export}</div>
+            <div className="text-xs text-muted-foreground">
+              {row.original.description}
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "format",
+        header: "Format",
+        cell: ({ row }) => row.original.format,
+      },
+      {
+        accessorKey: "scope",
+        header: "Perimetre",
+        cell: ({ row }) => row.original.scope,
+      },
+      {
+        accessorKey: "run",
+        header: "Run",
+        cell: ({ row }) => row.original.run,
+      },
+      {
+        accessorKey: "count",
+        header: "Lignes",
+        cell: ({ row }) => formatCellValue(row.original.count),
+      },
+      {
+        accessorKey: "status",
+        header: "Statut",
+        cell: ({ row }) => row.original.status,
+      },
       {
         id: "actions",
-        header: "",
-        enableGlobalFilter: false,
-        cell: ({ row }: { row: { original: ExportRow } }) => {
-          const actions = row.original.actions ?? [];
-          if (!actions.length) return null;
-          return (
-            <div className="flex flex-wrap justify-end gap-2">
-              {actions.map((action) => (
-                <Button
-                  key={action.id}
-                  size="sm"
-                  variant="outline"
-                  onClick={() => downloadMutation.mutate(action)}
-                  disabled={
-                    isDownloading && pendingActionId === action.id
-                  }
-                >
-                  {isDownloading && pendingActionId === action.id
-                    ? "Telechargement..."
-                    : action.label}
-                </Button>
-              ))}
-            </div>
+        header: "Action",
+        cell: ({ row }) => {
+          const isDownloading =
+            downloadMutation.isPending && activeDownloadId === row.original.id;
+          const isDisabled = !row.original.download || isDownloading;
+          return row.original.download ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setActiveDownloadId(row.original.id);
+                downloadMutation.mutate(row.original);
+              }}
+              disabled={isDisabled}
+            >
+              {isDownloading ? "Telechargement..." : "Telecharger"}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Indisponible</span>
           );
         },
       },
-    ];
-  }, [
-    downloadMutation,
-    isDownloading,
-    pendingActionId,
-    query.data?.headers,
-  ]);
+    ],
+    [activeDownloadId, downloadMutation]
+  );
 
-  const hasRows = (query.data?.rows ?? []).length > 0;
-  const hasColumns = (query.data?.headers ?? []).length > 0;
-  const isRefreshing = query.isFetching && !query.isLoading;
+  const hasError = Boolean(latestRunQuery.error || overviewQuery.error);
+  const isLoading =
+    latestRunQuery.isLoading || overviewQuery.isLoading;
+  const isRefreshing =
+    (latestRunQuery.isFetching || overviewQuery.isFetching) && !isLoading;
+  const fallbackSources = overviewQuery.data?.fallbackSources ?? [];
+  const hasRows = rows.length > 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Exports"
-        description="Generation et telechargement des exports (CSV, etc.)."
+        description="Telechargements CSV/JSON des donnees IA-CRM."
       />
       <Card>
         <CardHeader className="border-b">
           <div>
-            <CardTitle>Exports</CardTitle>
+            <CardTitle>Exports disponibles</CardTitle>
             <CardDescription>
-              Liste des exports disponibles pour les equipes marketing et data.
+              Dernier run detecte :{" "}
+              {latestRunId ? String(latestRunId) : "Aucun run trouve"}
             </CardDescription>
-            {query.data?.sourceNote ? (
+            {fallbackSources.length ? (
               <p className="text-xs text-muted-foreground">
-                {query.data.sourceNote}
+                source: {fallbackSources.join(", ")}
               </p>
             ) : null}
           </div>
@@ -297,17 +394,20 @@ export default function ExportsPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => query.refetch()}
-              disabled={query.isFetching}
+              onClick={() => {
+                latestRunQuery.refetch();
+                overviewQuery.refetch();
+              }}
+              disabled={latestRunQuery.isFetching || overviewQuery.isFetching}
             >
               {isRefreshing ? "Rafraichir..." : "Rafraichir"}
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          {query.error ? (
+          {hasError ? (
             <ErrorState message="Impossible de charger les exports." />
-          ) : query.isLoading ? (
+          ) : isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-9 w-48" />
               <div className="space-y-2">
@@ -316,22 +416,18 @@ export default function ExportsPage() {
                 ))}
               </div>
             </div>
-          ) : !hasColumns ? (
+          ) : !hasRows ? (
             <EmptyState
               title="Aucun export disponible."
-              description="Les exports apparaitront apres les premieres donnees."
+              description="Lancez un run pour generer de nouveaux exports."
             />
           ) : (
             <DataTable
               columns={columns}
-              data={query.data?.rows ?? []}
-              isLoading={query.isLoading}
+              data={rows}
+              isLoading={isLoading}
               filterPlaceholder="Rechercher un export..."
-              emptyMessage={
-                hasRows
-                  ? "Aucun resultat ne correspond au filtre."
-                  : "Aucun export disponible."
-              }
+              emptyMessage="Aucun export disponible."
             />
           )}
         </CardContent>
