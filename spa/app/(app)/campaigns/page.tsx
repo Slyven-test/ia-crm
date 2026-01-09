@@ -200,6 +200,16 @@ export default function CampaignsPage() {
     () => normalizeRows(lastResponse?.preview),
     [lastResponse?.preview]
   );
+  const previewErrorMessage = previewMutation.isError
+    ? getErrorMessage(
+        previewMutation.error,
+        "Impossible de charger la previsualisation."
+      )
+    : null;
+  const sendErrorMessage = sendMutation.isError
+    ? getErrorMessage(sendMutation.error, "Impossible d'envoyer la campagne.")
+    : null;
+  const errorMessage = sendErrorMessage ?? previewErrorMessage;
   const previewColumns = useMemo<ColumnDef<JsonRecord>[]>(
     () =>
       buildHeaders(previewRows).map((header) => ({
@@ -314,8 +324,11 @@ export default function CampaignsPage() {
                       templateId: event.target.value,
                     }))
                   }
-                  placeholder="Ex: tpl_123"
+                  placeholder="Ex: 42 (ID du template Brevo)"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Saisissez l&apos;ID numerique du template Brevo a utiliser.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="subject">Sujet</Label>
@@ -484,7 +497,7 @@ export default function CampaignsPage() {
                   }
                   className="h-4 w-4 rounded border border-input"
                 />
-                Dry run (pas d'envoi reel)
+                Mode safe (dry run) : aucun envoi reel
               </label>
               <div className="flex flex-1 items-center justify-end gap-2">
                 <Button
@@ -498,7 +511,11 @@ export default function CampaignsPage() {
                   onClick={handleSend}
                   disabled={!hasTemplate || sendMutation.isPending}
                 >
-                  {sendMutation.isPending ? "Envoi..." : "Envoyer"}
+                  {sendMutation.isPending
+                    ? "Envoi..."
+                    : form.dryRun
+                    ? "Envoyer (simulation)"
+                    : "Envoyer"}
                 </Button>
               </div>
             </div>
@@ -524,13 +541,12 @@ export default function CampaignsPage() {
               </CardAction>
             </CardHeader>
             <CardContent className="space-y-4">
+              {errorMessage ? <ErrorState message={errorMessage} /> : null}
               {previewMutation.isPending ? (
                 <div className="space-y-3">
                   <Skeleton className="h-6 w-40" />
                   <Skeleton className="h-40 w-full" />
                 </div>
-              ) : previewMutation.isError ? (
-                <ErrorState message="Impossible de charger la previsualisation." />
               ) : hasPreview ? (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2">
