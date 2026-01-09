@@ -12,6 +12,7 @@ import {
   Settings,
   Sparkles,
   Target,
+  Upload,
   Users,
   Workflow,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Clients", href: "/clients", icon: Users },
+  { label: "Clients", href: "/customers", icon: Users },
   { label: "Produits", href: "/products", icon: Package },
   { label: "Recommandations", href: "/recommendations", icon: Sparkles },
   { label: "Runs", href: "/runs", icon: Workflow },
@@ -29,6 +30,7 @@ const navItems = [
   { label: "Audit", href: "/audit", icon: ClipboardList },
   { label: "Campagnes", href: "/campaigns", icon: Megaphone },
   { label: "Config", href: "/config", icon: Settings },
+  { label: "Imports", href: "/imports", icon: Upload },
   { label: "Exports", href: "/exports", icon: Download },
 ];
 
