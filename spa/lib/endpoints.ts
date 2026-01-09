@@ -72,6 +72,8 @@ export const endpoints = {
     audit: "/export/audit",
     runs: (runId: string | number, format: "csv" | "json") =>
       `/export/runs/${runId}/${format}`,
+    runSummary: (runId: string | number) =>
+      `/export/runs/${runId}/run_summary.json`,
   },
   health: {
     check: "/health",
