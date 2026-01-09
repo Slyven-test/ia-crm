@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import dynamic from "next/dynamic";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -12,6 +12,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 import { formatCurrency, formatNumber, humanizeKey } from "@/lib/format";
+
+const SalesTrendChart = dynamic(() => import("@/components/sales-trend-chart"), {
+  ssr: false,
+});
 
 type SalesPoint = {
   period?: string;
@@ -198,37 +202,7 @@ export default function AnalyticsPage() {
             ) : salesQuery.error ? (
               <ErrorState message="Impossible de charger la tendance des ventes." />
             ) : salesQuery.data && salesQuery.data.length ? (
-              <div className="h-60 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={salesQuery.data}>
-                    <XAxis
-                      dataKey={(point: SalesPoint) =>
-                        point.label || point.period || ""
-                      }
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(value) => formatCurrency(value)}
-                    />
-                    <Tooltip
-                      formatter={(value) => formatCurrency(value as number)}
-                      labelFormatter={(label) => String(label)}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey={(point: SalesPoint) =>
-                        point.value ?? point.revenue ?? 0
-                      }
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              <SalesTrendChart data={salesQuery.data} />
             ) : (
               <EmptyState
                 title="Aucune vente enregistree."
