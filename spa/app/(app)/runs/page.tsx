@@ -10,7 +10,6 @@ import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
-import { RunItemsDialog } from "@/components/run-items-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
@@ -57,6 +57,16 @@ function getRunId(run: RunRow): string | number | null {
   }
   if (typeof run.id === "string" || typeof run.id === "number") {
     return run.id;
+  }
+  return null;
+}
+
+function getRunExportId(run: RunRow): string | null {
+  if (typeof run.run_id === "string" && run.run_id.trim()) {
+    return run.run_id;
+  }
+  if (typeof run.run_id === "number") {
+    return String(run.run_id);
   }
   return null;
 }
@@ -136,6 +146,27 @@ function getStatusBadge(status: string | number | null) {
   );
 }
 
+function formatJson(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatCellValue(value: unknown) {
+  if (value === null || value === undefined) return "-";
+  if (value instanceof Date) return formatDate(value);
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return `${value.length} item(s)`;
+  if (typeof value === "object") {
+    const payload = formatJson(value);
+    return payload.length > 120 ? `${payload.slice(0, 117)}...` : payload;
+  }
+  return String(value);
+}
+
 function formatDuration(ms: number | null) {
   if (!ms || ms <= 0) return "-";
   const totalSeconds = Math.round(ms / 1000);
@@ -194,6 +225,47 @@ function getDurationMs(run: RunRow) {
   return null;
 }
 
+function getRunLabel(run: RunRow) {
+  const label = getStringValue(run, [
+    "type",
+    "name",
+    "job",
+    "task",
+    "pipeline",
+    "run_type",
+    "kind",
+  ]);
+  if (label) return String(label);
+  if (run.run_id || run.id) return "recommandations";
+  return "-";
+}
+
+function getMetricsSummary(run: RunRow) {
+  const metrics: Array<{ label: string; value: number }> = [];
+  const items = getCountValue(run, ["total_items", "items_count", "item_count"]);
+  const clients = getCountValue(run, [
+    "total_clients",
+    "clients_count",
+    "client_count",
+  ]);
+  const recos = getCountValue(run, [
+    "recommendations",
+    "recommendations_count",
+    "reco_count",
+    "next_actions",
+    "next_action_count",
+  ]);
+  const errors = getCountValue(run, ["error_count", "errors", "failed_items"]);
+
+  if (items !== null) metrics.push({ label: "items", value: items });
+  if (clients !== null) metrics.push({ label: "clients", value: clients });
+  if (recos !== null) metrics.push({ label: "recos", value: recos });
+  if (errors !== null) metrics.push({ label: "erreurs", value: errors });
+
+  if (!metrics.length) return "-";
+  return metrics.map(({ label, value }) => `${label}: ${formatNumber(value)}`).join(" · ");
+}
+
 function triggerDownload(payload: string, filename: string, mimeType: string) {
   const blob = new Blob([payload], { type: mimeType });
   const url = window.URL.createObjectURL(blob);
@@ -205,7 +277,7 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function RunsPage() {
-  const [selectedRun, setSelectedRun] = useState<string | number | null>(null);
+  const [selectedRun, setSelectedRun] = useState<RunRow | null>(null);
   const [activeDownloadRun, setActiveDownloadRun] = useState<
     string | number | null
   >(null);
@@ -258,7 +330,93 @@ export default function RunsPage() {
     },
   });
 
+  const relaunchMutation = useMutation({
+    mutationFn: () =>
+      apiRequest(endpoints.recommendations.generate, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast.success("Relance des recommandations lancee.");
+      query.refetch();
+    },
+    onError: () => {
+      toast.error("Impossible de relancer les recommandations.");
+    },
+  });
+
   const rows = useMemo(() => normalizeRuns(query.data), [query.data]);
+  const dynamicKeys = useMemo(() => {
+    const excluded = new Set([
+      "id",
+      "run_id",
+      "status",
+      "state",
+      "run_status",
+      "type",
+      "name",
+      "job",
+      "task",
+      "pipeline",
+      "run_type",
+      "kind",
+      "started_at",
+      "start_time",
+      "created_at",
+      "executed_at",
+      "finished_at",
+      "completed_at",
+      "ended_at",
+      "end_time",
+      "duration_ms",
+      "duration_msec",
+      "elapsed_ms",
+      "runtime_ms",
+      "duration_s",
+      "duration_sec",
+      "duration_seconds",
+      "elapsed",
+      "runtime",
+      "tenant",
+      "tenant_id",
+      "error",
+      "message",
+      "detail",
+      "failure",
+      "reason",
+      "error_message",
+      "total_items",
+      "items_count",
+      "item_count",
+      "total_clients",
+      "clients_count",
+      "client_count",
+      "recommendations",
+      "recommendations_count",
+      "reco_count",
+      "next_actions",
+      "next_action_count",
+      "error_count",
+      "errors",
+      "failed_items",
+      "summary",
+    ]);
+
+    const keys = new Set<string>();
+    rows.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (!excluded.has(key)) keys.add(key);
+      });
+    });
+    return Array.from(keys).sort();
+  }, [rows]);
+
+  const selectedRunId = selectedRun ? getRunId(selectedRun) : null;
+  const exportRunId = selectedRun ? getRunExportId(selectedRun) : null;
+  const summaryQuery = useQuery({
+    queryKey: ["reco-runs", exportRunId, "summary"],
+    queryFn: () => apiRequest<unknown>(endpoints.export.runSummary(exportRunId!)),
+    enabled: Boolean(exportRunId),
+  });
 
   const columns = useMemo<ColumnDef<RunRow>[]>(
     () => [
@@ -283,18 +441,9 @@ export default function RunsPage() {
       },
       {
         id: "type",
-        header: "Type",
-        accessorFn: (row) =>
-          getStringValue(row, ["type", "run_type", "pipeline", "kind"]),
-        cell: ({ row }) => {
-          const value = getStringValue(row.original, [
-            "type",
-            "run_type",
-            "pipeline",
-            "kind",
-          ]);
-          return value ? String(value) : "-";
-        },
+        header: "Type/Nom",
+        accessorFn: (row) => getRunLabel(row),
+        cell: ({ row }) => getRunLabel(row.original),
       },
       {
         id: "started",
@@ -331,51 +480,84 @@ export default function RunsPage() {
         cell: ({ row }) => formatDuration(getDurationMs(row.original)),
       },
       {
-        id: "items",
-        header: "Items",
+        id: "tenant",
+        header: "Tenant",
         accessorFn: (row) =>
-          getCountValue(row, ["total_items", "items_count", "item_count"]),
+          getStringValue(row, ["tenant", "tenant_id", "tenant_name"]),
         cell: ({ row }) => {
-          const value = getCountValue(row.original, [
-            "total_items",
-            "items_count",
-            "item_count",
+          const value = getStringValue(row.original, [
+            "tenant",
+            "tenant_id",
+            "tenant_name",
           ]);
-          return value !== null ? formatNumber(value) : "-";
+          return value ? String(value) : "-";
         },
       },
       {
-        id: "clients",
-        header: "Clients",
+        id: "error",
+        header: "Erreur/Message",
         accessorFn: (row) =>
-          getCountValue(row, [
-            "total_clients",
-            "clients_count",
-            "client_count",
+          getStringValue(row, [
+            "error",
+            "message",
+            "detail",
+            "failure",
+            "reason",
+            "error_message",
           ]),
         cell: ({ row }) => {
-          const value = getCountValue(row.original, [
-            "total_clients",
-            "clients_count",
-            "client_count",
+          const value = getStringValue(row.original, [
+            "error",
+            "message",
+            "detail",
+            "failure",
+            "reason",
+            "error_message",
           ]);
-          return value !== null ? formatNumber(value) : "-";
+          if (!value) return "-";
+          const label = String(value);
+          return (
+            <span className="block max-w-[240px] truncate" title={label}>
+              {label}
+            </span>
+          );
         },
       },
+      {
+        id: "metrics",
+        header: "Comptages",
+        accessorFn: (row) =>
+          getMetricsSummary(row),
+        cell: ({ row }) => getMetricsSummary(row.original),
+      },
+      ...dynamicKeys.map<ColumnDef<RunRow>>((key) => ({
+        id: key,
+        header: key,
+        accessorFn: (row) => row[key],
+        cell: ({ row }) => {
+          const value = row.original[key];
+          const formatted = formatCellValue(value);
+          return (
+            <span className="block max-w-[240px] truncate" title={String(formatted)}>
+              {formatted}
+            </span>
+          );
+        },
+      })),
       {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => {
           const runId = getRunId(row.original);
+          const exportId = getRunExportId(row.original);
           const isDownloading =
-            downloadMutation.isPending && runId === activeDownloadRun;
+            downloadMutation.isPending && exportId === activeDownloadRun;
           return (
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => runId && setSelectedRun(runId)}
-                disabled={!runId}
+                onClick={() => setSelectedRun(row.original)}
               >
                 Voir details
               </Button>
@@ -383,11 +565,11 @@ export default function RunsPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  if (!runId) return;
-                  setActiveDownloadRun(runId);
-                  downloadMutation.mutate({ runId });
+                  if (!exportId) return;
+                  setActiveDownloadRun(exportId);
+                  downloadMutation.mutate({ runId: exportId });
                 }}
-                disabled={!runId || isDownloading}
+                disabled={!exportId || isDownloading}
               >
                 {isDownloading ? "Export..." : "Exporter"}
               </Button>
@@ -399,7 +581,7 @@ export default function RunsPage() {
         },
       },
     ],
-    [downloadMutation, activeDownloadRun]
+    [downloadMutation, activeDownloadRun, dynamicKeys]
   );
 
   const hasRows = rows.length > 0;
@@ -424,14 +606,23 @@ export default function RunsPage() {
             </CardDescription>
           </div>
           <CardAction>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => query.refetch()}
-              disabled={query.isFetching}
-            >
-              {isRefreshing ? "Rafraichir..." : "Rafraichir"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => relaunchMutation.mutate()}
+                disabled={relaunchMutation.isPending}
+              >
+                {relaunchMutation.isPending ? "Relance..." : "Relancer"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => query.refetch()}
+                disabled={query.isFetching}
+              >
+                {isRefreshing ? "Rafraichir..." : "Rafraichir"}
+              </Button>
+            </div>
           </CardAction>
         </CardHeader>
         <CardContent>
@@ -466,13 +657,35 @@ export default function RunsPage() {
           )}
         </CardContent>
       </Card>
-      <RunItemsDialog
-        runId={selectedRun}
+      <Dialog
         open={Boolean(selectedRun)}
         onOpenChange={(open) => {
           if (!open) setSelectedRun(null);
         }}
-      />
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Details du run</DialogTitle>
+          </DialogHeader>
+          {summaryQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-40 w-full" />
+            </div>
+          ) : selectedRun ? (
+            <div className="space-y-3">
+              {summaryQuery.error ? (
+                <ErrorState message="Details complets indisponibles, affichage du run local." />
+              ) : null}
+              <pre className="max-h-[60vh] overflow-auto rounded-xl border bg-muted/40 p-4 text-xs">
+                {formatJson(summaryQuery.data ?? selectedRun)}
+              </pre>
+            </div>
+          ) : (
+            <EmptyState title="Aucun detail disponible." />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
