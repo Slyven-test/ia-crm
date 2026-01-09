@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, Search, UserCircle } from "lucide-react";
+import { LogOut, Menu, Search, UserCircle } from "lucide-react";
 import { useState } from "react";
 
 import { Sidebar } from "@/components/sidebar";
@@ -15,9 +15,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useAuth } from "@/hooks/use-auth";
+import { ApiError } from "@/lib/api";
 
 export function Topbar() {
   const [open, setOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b bg-background/70 px-6 backdrop-blur">
@@ -56,7 +59,7 @@ export function Topbar() {
           <Button variant="ghost" className="flex items-center gap-2">
             <UserCircle className="h-5 w-5" />
             <span className="hidden text-sm font-medium sm:inline">
-              Mon compte
+              {user?.name || user?.email || "Mon compte"}
             </span>
           </Button>
         </DropdownMenuTrigger>
@@ -66,7 +69,21 @@ export function Topbar() {
           <DropdownMenuItem>Profil</DropdownMenuItem>
           <DropdownMenuItem>Parametres</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Deconnexion</DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              logout.mutate(undefined, {
+                onError: (error) => {
+                  if (error instanceof ApiError) {
+                    console.error(error.message);
+                  }
+                },
+              });
+            }}
+            className="text-destructive"
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Deconnexion
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
