@@ -2,6 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { Loader2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -544,8 +545,8 @@ export default function RecommendationsPage() {
   const isGeneratePending = generateMutation.isPending;
   const generateLabel = isGenerateAvailable
     ? isGeneratePending
-      ? "Generation..."
-      : "Generer des recommandations"
+      ? "Lancement..."
+      : "Lancer un run"
     : "Non disponible";
 
   return (
@@ -554,19 +555,24 @@ export default function RecommendationsPage() {
         title="Recommandations"
         description="Vue globale des recommandations et exports disponibles."
         actions={
-          <Button
-            onClick={() => generateMutation.mutate()}
-            disabled={!isGenerateAvailable || isGeneratePending}
-          >
-            {isGeneratePending ? (
-              <>
-                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                Generation...
-              </>
-            ) : (
-              generateLabel
-            )}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link href="/runs">Voir les runs</Link>
+            </Button>
+            <Button
+              onClick={() => generateMutation.mutate()}
+              disabled={!isGenerateAvailable || isGeneratePending}
+            >
+              {isGeneratePending ? (
+                <>
+                  <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                  Lancement...
+                </>
+              ) : (
+                generateLabel
+              )}
+            </Button>
+          </div>
         }
       />
       <Card>
@@ -643,13 +649,13 @@ export default function RecommendationsPage() {
                   {isGeneratePending ? (
                     <>
                       <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                      Generation...
-                    </>
-                  ) : isGenerateAvailable ? (
-                    "Generer"
-                  ) : (
-                    "Non disponible"
-                  )}
+                    Lancement...
+                  </>
+                ) : isGenerateAvailable ? (
+                  "Lancer un run"
+                ) : (
+                  "Non disponible"
+                )}
                 </Button>
               }
             />
