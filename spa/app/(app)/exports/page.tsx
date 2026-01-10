@@ -35,7 +35,7 @@ type RunExportPayload = {
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function resolveStringEndpoint(value: unknown): string | null {
@@ -82,17 +82,17 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function ExportsPage() {
+  const endpointsRecord = endpoints as Record<string, unknown>;
+  const exportRecord = isRecord(endpointsRecord.export) ? endpointsRecord.export : null;
   const exportRecommendationsEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export.recommendations
+    exportRecord?.recommendations
   );
   const recommendationsListEndpoint = resolveStringEndpoint(
     (endpoints as Record<string, unknown>)?.recommendations &&
       (endpoints as Record<string, unknown>).recommendations.list
   );
   const exportRunsEndpoint = resolveEndpointFnWithFormat(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export.runs
+    exportRecord?.runs
   );
   const recoRunsListEndpoint = resolveStringEndpoint(
     (endpoints as Record<string, unknown>)?.recoRuns &&
