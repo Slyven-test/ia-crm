@@ -281,7 +281,7 @@ function getSourceValue(run: ImportRun) {
   return value ? String(value) : null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 function getMessageValue(run: ImportRun) {
@@ -291,7 +291,7 @@ function getMessageValue(run: ImportRun) {
     (candidate): candidate is string | number | Record<string, unknown> =>
       typeof candidate === "string" ||
       typeof candidate === "number" ||
-      isRecord(candidate)
+      isPlainRecord(candidate)
   );
   if (typeof value === "string" || typeof value === "number") {
     return String(value);
