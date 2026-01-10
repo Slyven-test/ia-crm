@@ -1,8 +1,9 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2Icon } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table";
@@ -31,6 +32,8 @@ type RecommendationsPayload = {
   source: "json" | "csv";
   raw?: unknown;
 };
+
+const APPROVABLE_STATUSES = new Set(["pending", "draft", "proposed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -141,6 +144,41 @@ function parseCsv(text: string) {
   return { headers, rows: filteredRows };
 }
 
+function getRowId(row: RecommendationRow): number | null {
+  const candidate = row.id ?? row.recommendation_id ?? row.reco_id;
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return candidate;
+  }
+  if (typeof candidate === "string") {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function getRowStatus(row: RecommendationRow): string | null {
+  const candidate = row.status ?? row.state ?? row.approval_status;
+  if (typeof candidate === "string" && candidate.trim() !== "") {
+    return candidate.toLowerCase();
+  }
+  return null;
+}
+
+function getRowApprovedFlag(row: RecommendationRow): boolean | null {
+  const candidates = [row.is_approved, row.approved, row.isApproved];
+  for (const value of candidates) {
+    if (typeof value === "boolean") return value;
+  }
+  return null;
+}
+
+function isRowApprovable(row: RecommendationRow): boolean {
+  const status = getRowStatus(row);
+  if (status && APPROVABLE_STATUSES.has(status)) return true;
+  const approvedFlag = getRowApprovedFlag(row);
+  return approvedFlag === false;
+}
+
 async function fetchRecommendations(): Promise<RecommendationsPayload> {
   try {
     const jsonData = await apiRequest<unknown>(endpoints.recommendations.list);
@@ -173,24 +211,23 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function RecommendationsPage() {
+  const queryClient = useQueryClient();
+  const [isGenerateAvailable, setGenerateAvailable] = useState(true);
+  const [isApproveAvailable, setApproveAvailable] = useState(true);
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+
   const query = useQuery({
     queryKey: ["recommendations"],
     queryFn: fetchRecommendations,
   });
 
-  const columns = useMemo<ColumnDef<RecommendationRow>[]>(
-    () =>
-      (query.data?.headers ?? []).map((header) => ({
-        accessorKey: header,
-        header: humanizeKey(header),
-        cell: ({ row }) => formatCellValue(row.original[header]),
-      })),
-    [query.data?.headers]
-  );
-
   const hasData = (query.data?.rows ?? []).length > 0;
-  const hasColumns = columns.length > 0;
+  const hasColumns = (query.data?.headers ?? []).length > 0;
   const isRefreshing = query.isFetching && !query.isLoading;
+  const queryErrorMessage =
+    query.error instanceof ApiError
+      ? query.error.message
+      : "Impossible de charger les recommandations.";
 
   const csvDownload = useMutation({
     mutationFn: async () => {
@@ -231,20 +268,138 @@ export default function RecommendationsPage() {
   const generateMutation = useMutation({
     mutationFn: () =>
       apiRequest(endpoints.recommendations.generate, { method: "POST" }),
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Generation des recommandations lancee.");
-      query.refetch();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recommendations"] }),
+        queryClient.invalidateQueries({ queryKey: ["reco-runs"] }),
+      ]);
     },
-    onError: () => {
-      toast.error("Impossible de generer les recommandations.");
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 404) {
+        setGenerateAvailable(false);
+        toast.error("Generation non disponible.");
+        return;
+      }
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "Impossible de generer les recommandations.";
+      toast.error(message);
     },
   });
+
+  const approveMutation = useMutation({
+    mutationFn: (recoId: number) =>
+      apiRequest(endpoints.recommendations.approve, {
+        method: "POST",
+        body: [recoId],
+      }),
+    onMutate: (recoId) => {
+      setApprovingId(recoId);
+    },
+    onSuccess: async () => {
+      toast.success("Recommandation approuvee.");
+      await queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 404) {
+        setApproveAvailable(false);
+        toast.error("Action non disponible.");
+        return;
+      }
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "Impossible d'approuver la recommandation.";
+      toast.error(message);
+    },
+    onSettled: () => {
+      setApprovingId(null);
+    },
+  });
+
+  const columns = useMemo<ColumnDef<RecommendationRow>[]>(() => {
+    const baseColumns = (query.data?.headers ?? []).map((header) => ({
+      accessorKey: header,
+      header: humanizeKey(header),
+      cell: ({ row }: { row: { original: RecommendationRow } }) =>
+        formatCellValue(row.original[header]),
+    }));
+
+    if (query.data?.source !== "json") {
+      return baseColumns;
+    }
+
+    return [
+      ...baseColumns,
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }: { row: { original: RecommendationRow } }) => {
+          if (!isRowApprovable(row.original)) return "-";
+          if (!isApproveAvailable) {
+            return (
+              <Button size="sm" variant="outline" disabled>
+                Non disponible
+              </Button>
+            );
+          }
+          const rowId = getRowId(row.original);
+          const isPending =
+            approveMutation.isPending && approvingId === rowId;
+          return (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (rowId !== null) {
+                  approveMutation.mutate(rowId);
+                }
+              }}
+              disabled={rowId === null || isPending}
+            >
+              {isPending ? "Approbation..." : "Approuver"}
+            </Button>
+          );
+        },
+      },
+    ];
+  }, [
+    approvingId,
+    approveMutation,
+    isApproveAvailable,
+    query.data?.headers,
+    query.data?.source,
+  ]);
+
+  const isGeneratePending = generateMutation.isPending;
+  const generateLabel = isGenerateAvailable
+    ? isGeneratePending
+      ? "Generation..."
+      : "Generer des recommandations"
+    : "Non disponible";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Recommandations"
         description="Vue globale des recommandations et exports disponibles."
+        actions={
+          <Button
+            onClick={() => generateMutation.mutate()}
+            disabled={!isGenerateAvailable || isGeneratePending}
+          >
+            {isGeneratePending ? (
+              <>
+                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                Generation...
+              </>
+            ) : (
+              generateLabel
+            )}
+          </Button>
+        }
       />
       <Card>
         <CardHeader className="border-b">
@@ -286,18 +441,11 @@ export default function RecommendationsPage() {
                 Telecharger JSON
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              onClick={() => generateMutation.mutate()}
-              disabled={generateMutation.isPending}
-            >
-              Generer
-            </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
           {query.error ? (
-            <ErrorState message="Impossible de charger les recommandations." />
+            <ErrorState message={queryErrorMessage} />
           ) : query.isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-9 w-56" />
@@ -311,6 +459,23 @@ export default function RecommendationsPage() {
             <EmptyState
               title="Aucune recommandation disponible."
               description="Les recommandations apparaitront apres une generation."
+              action={
+                <Button
+                  onClick={() => generateMutation.mutate()}
+                  disabled={!isGenerateAvailable || isGeneratePending}
+                >
+                  {isGeneratePending ? (
+                    <>
+                      <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                      Generation...
+                    </>
+                  ) : isGenerateAvailable ? (
+                    "Generer"
+                  ) : (
+                    "Non disponible"
+                  )}
+                </Button>
+              }
             />
           ) : (
             <DataTable
