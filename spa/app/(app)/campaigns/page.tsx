@@ -314,14 +314,19 @@ export default function CampaignsPage() {
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | number | null>(null);
 
-  const endpointsRecord = endpoints as Record<string, unknown>;
-  const campaignsRecord = isRecord(endpointsRecord.campaigns)
-    ? endpointsRecord.campaigns
-    : null;
-  const rfmRecord = isRecord(endpointsRecord.rfm) ? endpointsRecord.rfm : null;
-  const recoRunsRecord = isRecord(endpointsRecord.recoRuns)
-    ? endpointsRecord.recoRuns
-    : null;
+  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
+  const campaignsRecord =
+    endpointsRecord && isRecord(endpointsRecord.campaigns)
+      ? endpointsRecord.campaigns
+      : null;
+  const rfmRecord =
+    endpointsRecord && isRecord(endpointsRecord.rfm)
+      ? endpointsRecord.rfm
+      : null;
+  const recoRunsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recoRuns)
+      ? endpointsRecord.recoRuns
+      : null;
 
   const campaignsEndpoint = resolveStringEndpoint(
     campaignsRecord?.create

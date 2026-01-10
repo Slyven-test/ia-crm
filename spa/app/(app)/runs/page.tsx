@@ -346,31 +346,34 @@ export default function RunsPage() {
   const [runDialogOpen, setRunDialogOpen] = useState(false);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
 
+  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
+  const recoRunsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recoRuns)
+      ? endpointsRecord.recoRuns
+      : null;
+  const recommendationsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recommendations)
+      ? endpointsRecord.recommendations
+      : null;
+  const exportRecord =
+    endpointsRecord && isRecord(endpointsRecord.export)
+      ? endpointsRecord.export
+      : null;
+
   const recoRunsListEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns.list
+    recoRunsRecord?.list
   );
   const recoRunItemsEndpoint = resolveEndpointFn(
-    (endpoints as Record<string, unknown>)?.recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns.items
+    recoRunsRecord?.items
   );
   const runGenerateEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recommendations &&
-      (endpoints as Record<string, unknown>).recommendations &&
-      (endpoints as Record<string, unknown>).recommendations.generate
+    recommendationsRecord?.generate
   );
   const runExportEndpoint = resolveEndpointFnWithFormat(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export &&
-      (endpoints as Record<string, unknown>).export.runs
+    exportRecord?.runs
   );
   const runSummaryEndpoint = resolveEndpointFn(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export &&
-      (endpoints as Record<string, unknown>).export.runSummary
+    exportRecord?.runSummary
   );
 
   const query = useQuery({

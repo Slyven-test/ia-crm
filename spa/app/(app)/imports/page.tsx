@@ -175,18 +175,19 @@ function resolveString(
 }
 
 function resolveImportEndpoints(target: ImportTargetKey): ImportEndpointInfo {
-  const record = endpoints as Record<string, unknown>;
-  const importsRoot = isRecord(record.imports)
-    ? (record.imports as Record<string, unknown>)
-    : null;
-  const etlRoot = isRecord(record.etl)
-    ? (record.etl as Record<string, unknown>)
-    : null;
-  const targetRoot = importsRoot && isRecord(importsRoot[target])
-    ? (importsRoot[target] as Record<string, unknown>)
-    : null;
+  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
+  const importsRoot =
+    endpointsRecord && isRecord(endpointsRecord.imports)
+      ? endpointsRecord.imports
+      : null;
+  const etlRoot =
+    endpointsRecord && isRecord(endpointsRecord.etl)
+      ? endpointsRecord.etl
+      : null;
+  const targetRoot =
+    importsRoot && isRecord(importsRoot[target]) ? importsRoot[target] : null;
 
-  const sources = [targetRoot, importsRoot, etlRoot, record];
+  const sources = [targetRoot, importsRoot, etlRoot, endpointsRecord];
 
   return {
     uploadEndpoint: resolveEndpoint(sources, uploadEndpointCandidates),

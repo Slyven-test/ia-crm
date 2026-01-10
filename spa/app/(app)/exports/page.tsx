@@ -82,12 +82,19 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function ExportsPage() {
-  const endpointsRecord = endpoints as Record<string, unknown>;
-  const exportRecord = isRecord(endpointsRecord.export) ? endpointsRecord.export : null;
-  const recommendationsRecord = isRecord(endpointsRecord.recommendations)
-    ? endpointsRecord.recommendations
-    : null;
-  const recoRunsRecord = isRecord(endpointsRecord.recoRuns) ? endpointsRecord.recoRuns : null;
+  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
+  const exportRecord =
+    endpointsRecord && isRecord(endpointsRecord.export)
+      ? endpointsRecord.export
+      : null;
+  const recommendationsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recommendations)
+      ? endpointsRecord.recommendations
+      : null;
+  const recoRunsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recoRuns)
+      ? endpointsRecord.recoRuns
+      : null;
   const exportRecommendationsEndpoint = resolveStringEndpoint(
     exportRecord?.recommendations
   );
