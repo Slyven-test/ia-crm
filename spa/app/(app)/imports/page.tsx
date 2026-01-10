@@ -1,11 +1,9 @@
 "use client";
 
-import { type CellContext, type ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
@@ -13,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -26,284 +23,233 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 import { formatDate, formatNumber } from "@/lib/format";
 
-type ImportRun = Record<string, unknown>;
+type ImportTargetKey = "clients" | "products" | "sales";
 
-type StatusTone = "success" | "error" | "pending" | "neutral";
+type ImportEndpointInfo = {
+  uploadEndpoint: string | null;
+  runEndpoint: string | null;
+  validateEndpoint: string | null;
+  listEndpoint: string | null;
+  fileFieldName: string;
+};
 
-const statusSuccessValues = new Set([
-  "success",
-  "ok",
-  "done",
-  "completed",
-  "complete",
-  "succeeded",
-  "finished",
-]);
-const statusFailureValues = new Set([
-  "failed",
-  "error",
-  "ko",
-  "echec",
-  "canceled",
-  "cancelled",
-]);
-const statusPendingValues = new Set([
-  "running",
-  "in_progress",
-  "pending",
-  "processing",
-  "queued",
-]);
-const importDateKeys = [
-  "imported_at",
-  "started_at",
-  "finished_at",
-  "completed_at",
-  "created_at",
-  "updated_at",
-  "run_at",
-  "timestamp",
-  "date",
+type ImportSummary = {
+  summary: Array<{ label: string; value: string }>;
+  errors: string[];
+  raw: string | null;
+};
+
+type ImportCardConfig = {
+  key: ImportTargetKey;
+  title: string;
+  description: string;
+  invalidateKeys: QueryKey[];
+};
+
+const summaryKeyMap: Array<{ key: string; label: string }> = [
+  { key: "message", label: "Message" },
+  { key: "summary", label: "Resume" },
+  { key: "detail", label: "Detail" },
+  { key: "status", label: "Statut" },
+  { key: "result", label: "Resultat" },
 ];
 
-function resolveUploadEndpoint(): string | null {
-  const record = endpoints as Record<string, unknown>;
-  if (!("imports" in record)) return null;
-  const importsValue = record.imports;
-  if (!importsValue || typeof importsValue !== "object") return null;
-  const candidates = ["upload", "create", "ingest"];
-  for (const key of candidates) {
-    const uploadValue = (importsValue as Record<string, unknown>)[key];
-    if (typeof uploadValue === "string" && uploadValue.length > 0) {
-      return uploadValue;
-    }
-  }
-  return null;
-}
+const countKeyMap: Array<{ key: string; label: string }> = [
+  { key: "rows", label: "Lignes" },
+  { key: "lines", label: "Lignes" },
+  { key: "count", label: "Total" },
+  { key: "total", label: "Total" },
+  { key: "imported_rows", label: "Importees" },
+  { key: "imported_lines", label: "Importees" },
+  { key: "inserted", label: "Inseres" },
+  { key: "updated", label: "Mises a jour" },
+  { key: "created", label: "Creees" },
+  { key: "skipped", label: "Ignorees" },
+];
 
-function resolveUploadFieldName(): string {
-  const record = endpoints as Record<string, unknown>;
-  if (!("imports" in record)) return "file";
-  const importsValue = record.imports;
-  if (!importsValue || typeof importsValue !== "object") return "file";
-  const fieldCandidate =
-    (importsValue as Record<string, unknown>).fileField ??
-    (importsValue as Record<string, unknown>).file_field;
-  return typeof fieldCandidate === "string" && fieldCandidate.length > 0
-    ? fieldCandidate
-    : "file";
-}
+const errorKeyCandidates = [
+  "errors",
+  "error",
+  "error_message",
+  "errorMessage",
+  "failures",
+  "invalid",
+  "invalid_rows",
+];
 
-function resolveListEndpoint(): string | null {
-  const record = endpoints as Record<string, unknown>;
-  if ("imports" in record) {
-    const importsValue = record.imports;
-    if (importsValue && typeof importsValue === "object") {
-      const candidates = ["list", "history", "runs", "items"];
-      for (const key of candidates) {
-        const listValue = (importsValue as Record<string, unknown>)[key];
-        if (typeof listValue === "string" && listValue.length > 0) {
-          return listValue;
-        }
-      }
-    }
-  }
-  if ("audit" in record) {
-    const auditValue = record.audit;
-    if (auditValue && typeof auditValue === "object") {
-      const logsValue = (auditValue as Record<string, unknown>).logs;
-      if (typeof logsValue === "string" && logsValue.length > 0) {
-        return logsValue;
-      }
-    }
-  }
-  return null;
-}
+const uploadEndpointCandidates = ["upload", "create", "ingest"];
+const runEndpointCandidates = ["run", "start", "execute", "trigger"];
+const validateEndpointCandidates = ["validate", "check", "verify"];
+const listEndpointCandidates = ["list", "history", "runs", "items"];
+const fileFieldCandidates = [
+  "fileField",
+  "file_field",
+  "file",
+  "fileKey",
+  "file_key",
+];
+
+const defaultImportConfigs: ImportCardConfig[] = [
+  {
+    key: "clients",
+    title: "Clients",
+    description: "Importer un fichier CSV de contacts ou comptes.",
+    invalidateKeys: [["customers"], ["clients", "count"], ["audit", "latest"]],
+  },
+  {
+    key: "products",
+    title: "Produits",
+    description: "Importer le catalogue produits et ses attributs.",
+    invalidateKeys: [["products"], ["products", "count"], ["audit", "latest"]],
+  },
+  {
+    key: "sales",
+    title: "Ventes",
+    description: "Importer l'historique des ventes/transactions.",
+    invalidateKeys: [["analytics", "sales-trend"], ["sales"], ["audit", "latest"]],
+  },
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function normalizeRuns(value: unknown): ImportRun[] {
-  if (Array.isArray(value)) {
-    return value.filter(isRecord);
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
   }
-  if (isRecord(value)) {
-    const candidates = ["results", "items", "runs", "imports", "data", "logs"];
-    for (const key of candidates) {
-      if (Array.isArray(value[key])) {
-        return value[key].filter(isRecord);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function resolveEndpoint(
+  sources: Array<Record<string, unknown> | null>,
+  keys: string[]
+): string | null {
+  for (const source of sources) {
+    if (!source) continue;
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
       }
     }
   }
-  return [];
+  return null;
 }
 
-function pickValue<T>(
-  run: ImportRun,
+function resolveString(
+  sources: Array<Record<string, unknown> | null>,
   keys: string[],
-  predicate: (value: unknown) => value is T
-): T | null {
-  for (const key of keys) {
-    const value = run[key];
-    if (predicate(value)) return value;
+  fallback: string
+): string {
+  for (const source of sources) {
+    if (!source) continue;
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value;
+      }
+    }
   }
-  return null;
+  return fallback;
 }
 
-function pickDateValue(run: ImportRun) {
-  return pickValue(
-    run,
-    importDateKeys,
-    (candidate): candidate is string | number =>
-      typeof candidate === "string" || typeof candidate === "number"
-  );
+function resolveImportEndpoints(target: ImportTargetKey): ImportEndpointInfo {
+  const record = endpoints as Record<string, unknown>;
+  const importsRoot = isRecord(record.imports)
+    ? (record.imports as Record<string, unknown>)
+    : null;
+  const etlRoot = isRecord(record.etl)
+    ? (record.etl as Record<string, unknown>)
+    : null;
+  const targetRoot = importsRoot && isRecord(importsRoot[target])
+    ? (importsRoot[target] as Record<string, unknown>)
+    : null;
+
+  const sources = [targetRoot, importsRoot, etlRoot, record];
+
+  return {
+    uploadEndpoint: resolveEndpoint(sources, uploadEndpointCandidates),
+    runEndpoint: resolveEndpoint(sources, runEndpointCandidates),
+    validateEndpoint: resolveEndpoint(sources, validateEndpointCandidates),
+    listEndpoint: resolveEndpoint(sources, listEndpointCandidates),
+    fileFieldName: resolveString(sources, fileFieldCandidates, "file"),
+  };
 }
 
-function getStatusValue(run: ImportRun): string | number | boolean | null {
-  const raw = pickValue(
-    run,
-    ["success", "status", "state", "result", "outcome"],
-    isStatusCandidate
-  );
-  if (raw !== null && raw !== undefined) return raw;
-  if (isRecord(run.verification)) {
-    const verification = run.verification;
-    const nested = pickValue(
-      verification,
-      ["success", "status", "state", "result", "outcome"],
-      isStatusCandidate
-    );
-    if (nested !== null && nested !== undefined) return nested;
-  }
-  return null;
-}
-
-function isStatusCandidate(value: unknown): value is string | number | boolean {
-  return (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  );
-}
-
-function getStatusBadge(value: string | number | boolean | null) {
-  if (value === null) {
-    return (
-      <Badge variant="outline" className="capitalize">
-        inconnu
-      </Badge>
-    );
+function extractSummary(response: unknown): ImportSummary {
+  if (response === null || response === undefined) {
+    return { summary: [], errors: [], raw: null };
   }
 
-  if (typeof value === "boolean") {
-    return value ? (
-      <Badge className="capitalize border-emerald-200 bg-emerald-100 text-emerald-900">
-        ok
-      </Badge>
-    ) : (
-      <Badge className="capitalize border-rose-200 bg-rose-100 text-rose-900">
-        echec
-      </Badge>
-    );
+  if (Array.isArray(response)) {
+    return {
+      summary: [{ label: "Lignes", value: formatNumber(response.length) }],
+      errors: [],
+      raw: stringifyValue(response),
+    };
   }
 
-  const label = String(value);
-  const normalized = label.trim().toLowerCase();
-  const tone: StatusTone = statusSuccessValues.has(normalized)
-    ? "success"
-    : statusFailureValues.has(normalized)
-      ? "error"
-      : statusPendingValues.has(normalized)
-        ? "pending"
-        : "neutral";
-
-  if (tone === "success") {
-    return (
-      <Badge className="capitalize border-emerald-200 bg-emerald-100 text-emerald-900">
-        {label}
-      </Badge>
-    );
-  }
-  if (tone === "error") {
-    return (
-      <Badge className="capitalize border-rose-200 bg-rose-100 text-rose-900">
-        {label}
-      </Badge>
-    );
-  }
-  if (tone === "pending") {
-    return (
-      <Badge className="capitalize border-sky-200 bg-sky-100 text-sky-900">
-        {label}
-      </Badge>
-    );
+  if (!isRecord(response)) {
+    return {
+      summary: [{ label: "Reponse", value: stringifyValue(response) }],
+      errors: [],
+      raw: stringifyValue(response),
+    };
   }
 
-  return (
-    <Badge variant="outline" className="capitalize">
-      {label}
-    </Badge>
-  );
-}
+  const summary: ImportSummary["summary"] = [];
+  for (const { key, label } of summaryKeyMap) {
+    if (key in response) {
+      const value = response[key];
+      if (value !== undefined && value !== null && value !== "") {
+        summary.push({ label, value: stringifyValue(value) });
+      }
+    }
+  }
 
-function getLinesValue(run: ImportRun) {
-  const keys = [
-    "rows",
-    "lines",
-    "imported_rows",
-    "imported_lines",
-    "records",
-    "count",
-    "total",
-    "items",
-    "inserted",
-  ];
-  for (const key of keys) {
-    const value = run[key];
-    if (typeof value === "number") return value;
+  for (const { key, label } of countKeyMap) {
+    if (!(key in response)) continue;
+    const value = response[key];
+    if (typeof value === "number") {
+      summary.push({ label, value: formatNumber(value) });
+      continue;
+    }
     if (typeof value === "string") {
       const numeric = Number(value);
-      if (!Number.isNaN(numeric)) return numeric;
+      if (!Number.isNaN(numeric)) {
+        summary.push({ label, value: formatNumber(numeric) });
+        continue;
+      }
     }
-    if (Array.isArray(value)) return value.length;
-  }
-  return null;
-}
-
-function getSourceValue(run: ImportRun) {
-  const value = pickValue(
-    run,
-    ["source", "origin", "provider", "system", "channel", "type", "kind"],
-    (candidate): candidate is string | number =>
-      typeof candidate === "string" || typeof candidate === "number"
-  );
-  return value ? String(value) : null;
-}
-
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-function getMessageValue(run: ImportRun) {
-  const value = pickValue(
-    run,
-    ["message", "detail", "error", "status_message", "summary"],
-    (candidate): candidate is string | number | Record<string, unknown> =>
-      typeof candidate === "string" ||
-      typeof candidate === "number" ||
-      isPlainRecord(candidate)
-  );
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value);
-  }
-  if (value && typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
+    if (Array.isArray(value)) {
+      summary.push({ label, value: formatNumber(value.length) });
     }
   }
-  return null;
+
+  const errors: string[] = [];
+  for (const key of errorKeyCandidates) {
+    if (!(key in response)) continue;
+    const value = response[key];
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        const formatted = stringifyValue(item);
+        if (formatted && formatted !== "-") errors.push(formatted);
+      });
+    } else if (value) {
+      errors.push(stringifyValue(value));
+    }
+  }
+
+  const raw = stringifyValue(response);
+
+  return { summary, errors, raw };
 }
 
 function formatBytes(bytes: number) {
@@ -319,51 +265,56 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[index]}`;
 }
 
-export default function ImportsPage() {
-  const uploadEndpoint = resolveUploadEndpoint();
-  const uploadFieldName = resolveUploadFieldName();
-  const listEndpoint = resolveListEndpoint();
-  const [uploadUnavailable, setUploadUnavailable] = useState<boolean>(
-    uploadEndpoint === null
-  );
+function ImportCard({
+  config,
+  endpointInfo,
+}: {
+  config: ImportCardConfig;
+  endpointInfo: ImportEndpointInfo;
+}) {
+  const queryClient = useQueryClient();
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState<number>(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [lastResponse, setLastResponse] = useState<unknown>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [uploadUnavailable, setUploadUnavailable] = useState<boolean>(
+    endpointInfo.uploadEndpoint === null
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const importsQuery = useQuery({
-    queryKey: ["imports", listEndpoint ?? "none"],
-    queryFn: () => {
-      if (!listEndpoint) return Promise.resolve(null);
-      return apiRequest<unknown>(listEndpoint);
-    },
-    enabled: Boolean(listEndpoint),
-  });
+  const responseSummary = useMemo(
+    () => extractSummary(lastResponse),
+    [lastResponse]
+  );
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      if (!uploadEndpoint) {
+      if (!endpointInfo.uploadEndpoint) {
         throw new ApiError({
           status: 404,
           message: "Endpoint d'upload indisponible.",
         });
       }
       const formData = new FormData();
-      formData.append(uploadFieldName, file);
-      return apiRequest(uploadEndpoint, {
+      formData.append(endpointInfo.fileFieldName, file);
+      return apiRequest(endpointInfo.uploadEndpoint, {
         method: "POST",
         body: formData,
       });
     },
-    onSuccess: () => {
-      toast.success("Fichier envoye avec succes.");
+    onSuccess: async (data) => {
+      toast.success(`Import ${config.title.toLowerCase()} lance.`);
+      setLastResponse(data);
+      setLastError(null);
+      setUploadError(null);
       setUploadFile(null);
       setFileInputKey((prev) => prev + 1);
-      setUploadError(null);
-      if (listEndpoint) {
-        importsQuery.refetch();
-      }
+      await Promise.all(
+        config.invalidateKeys.map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey })
+        )
+      );
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 404) {
@@ -374,65 +325,11 @@ export default function ImportsPage() {
           ? error.message
           : "Impossible d'envoyer le fichier.";
       setUploadError(message);
+      setLastError(message);
       toast.error(message);
     },
   });
 
-  const columns = useMemo<ColumnDef<ImportRun>[]>(
-    () => [
-      {
-        id: "status",
-        header: "Statut",
-        accessorFn: (row) => getStatusValue(row),
-        cell: (ctx: CellContext<ImportRun, unknown>) =>
-          getStatusBadge(getStatusValue(ctx.row.original)),
-      },
-      {
-        id: "date",
-        header: "Date",
-        accessorFn: (row) => pickDateValue(row),
-        cell: (ctx: CellContext<ImportRun, unknown>) =>
-          formatDate(pickDateValue(ctx.row.original)),
-      },
-      {
-        id: "lines",
-        header: "Lignes",
-        accessorFn: (row) => getLinesValue(row),
-        cell: (ctx: CellContext<ImportRun, unknown>) =>
-          formatNumber(getLinesValue(ctx.row.original)),
-      },
-      {
-        id: "source",
-        header: "Source",
-        accessorFn: (row) => getSourceValue(row) ?? "-",
-        cell: (ctx: CellContext<ImportRun, unknown>) =>
-          getSourceValue(ctx.row.original) ?? "-",
-      },
-      {
-        id: "message",
-        header: "Message",
-        accessorFn: (row) => getMessageValue(row) ?? "-",
-        cell: (ctx: CellContext<ImportRun, unknown>) =>
-          getMessageValue(ctx.row.original) ?? "-",
-      },
-    ],
-    []
-  );
-
-  const rows = useMemo(
-    () => (listEndpoint ? normalizeRuns(importsQuery.data) : []),
-    [importsQuery.data, listEndpoint]
-  );
-  const hasRows = rows.length > 0;
-  const isRefreshing = importsQuery.isFetching && !importsQuery.isLoading;
-  const listUnavailable =
-    !listEndpoint ||
-    (importsQuery.error instanceof ApiError &&
-      importsQuery.error.status === 404);
-  const listErrorMessage =
-    importsQuery.error instanceof ApiError
-      ? importsQuery.error.message
-      : "Impossible de charger les imports.";
   const uploadDisabled =
     uploadUnavailable || uploadMutation.isPending || uploadFile === null;
   const fileInfo = uploadFile
@@ -443,182 +340,175 @@ export default function ImportsPage() {
       }
     : null;
 
+  const missingReason =
+    !endpointInfo.uploadEndpoint &&
+    "Aucun endpoint d'upload n'est configure dans endpoints.ts pour cet import.";
+
+  return (
+    <Card className="flex h-full flex-col">
+      <CardHeader>
+        <div className="space-y-1">
+          <CardTitle className="flex items-center gap-2">
+            {config.title}
+            {endpointInfo.uploadEndpoint ? (
+              <Badge variant="outline">Actif</Badge>
+            ) : (
+              <Badge variant="outline">Non disponible</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>{config.description}</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-4">
+        {!endpointInfo.uploadEndpoint ? (
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+            {missingReason}
+          </div>
+        ) : null}
+
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!endpointInfo.uploadEndpoint) {
+              setUploadUnavailable(true);
+              setUploadError("Upload non disponible.");
+              toast.error("Endpoint d'upload indisponible.");
+              return;
+            }
+            if (!uploadFile) {
+              const message = "Selectionnez un fichier CSV.";
+              setUploadError(message);
+              toast.error(message);
+              return;
+            }
+            setUploadError(null);
+            uploadMutation.mutate(uploadFile);
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor={`upload-${config.key}`}>Fichier CSV</Label>
+            <Input
+              ref={fileInputRef}
+              key={fileInputKey}
+              id={`upload-${config.key}`}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => {
+                setUploadFile(event.target.files?.[0] ?? null);
+                setUploadError(null);
+                setLastError(null);
+              }}
+              disabled={uploadUnavailable}
+            />
+          </div>
+          {uploadMutation.isPending ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-64" />
+              <Skeleton className="h-4 w-48" />
+            </div>
+          ) : fileInfo ? (
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-foreground">{fileInfo.name}</p>
+              <p className="text-muted-foreground">
+                {fileInfo.size} · Derniere modification {fileInfo.updatedAt}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Aucun fichier selectionne.
+            </p>
+          )}
+          {uploadError ? (
+            <p className="text-sm text-rose-600">{uploadError}</p>
+          ) : null}
+          <Button type="submit" disabled={uploadDisabled}>
+            {uploadMutation.isPending ? "Envoi en cours..." : "Envoyer"}
+          </Button>
+        </form>
+
+        <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
+          <p className="text-sm font-medium">Dernier retour</p>
+          {lastError ? (
+            <p className="mt-2 text-rose-600">{lastError}</p>
+          ) : lastResponse ? (
+            <div className="mt-2 space-y-2">
+              {responseSummary.summary.length ? (
+                <div className="space-y-1">
+                  {responseSummary.summary.map((item) => (
+                    <div
+                      key={`${item.label}-${item.value}`}
+                      className="flex items-center justify-between text-muted-foreground"
+                    >
+                      <span>{item.label}</span>
+                      <span className="font-medium text-foreground">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground">
+                  Aucun resume disponible.
+                </p>
+              )}
+              {responseSummary.errors.length ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase text-rose-600">
+                    Erreurs
+                  </p>
+                  {responseSummary.errors.map((errorItem, index) => (
+                    <p key={`${errorItem}-${index}`} className="text-rose-600">
+                      {errorItem}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+              {responseSummary.raw ? (
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">Details JSON</summary>
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border/60 bg-background/80 p-2">
+                    {responseSummary.raw}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyState
+              title="Aucun import lance"
+              description="Chargez un fichier pour lancer l'import."
+            />
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function ImportsPage() {
+  const importCards = useMemo(
+    () =>
+      defaultImportConfigs.map((config) => ({
+        config,
+        endpointInfo: resolveImportEndpoints(config.key),
+      })),
+    []
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Imports"
-        description="Sources: iSaVigne / Odoo / Woo CSV."
+        description="Chargez les donnees clients, produits et ventes via CSV."
       />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="border-b">
-            <div>
-              <CardTitle>Importer un fichier</CardTitle>
-              <CardDescription>
-                Envoyez un CSV pour lancer une ingestion manuelle.
-              </CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!uploadEndpoint) {
-                  setUploadUnavailable(true);
-                  setUploadError("Upload non disponible.");
-                  toast.error("Endpoint d'upload indisponible.");
-                  return;
-                }
-                if (!uploadFile) {
-                  const message = "Selectionnez un fichier CSV.";
-                  setUploadError(message);
-                  toast.error(message);
-                  return;
-                }
-                setUploadError(null);
-                uploadMutation.mutate(uploadFile);
-              }}
-            >
-              <div className="space-y-2">
-                <Label htmlFor="upload-file">Fichier CSV</Label>
-                <Input
-                  ref={fileInputRef}
-                  key={fileInputKey}
-                  id="upload-file"
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    setUploadFile(event.target.files?.[0] ?? null);
-                    setUploadError(null);
-                  }}
-                />
-              </div>
-              <div
-                className={`rounded-md border border-dashed p-4 text-sm ${
-                  isDragging
-                    ? "border-emerald-400 bg-emerald-50 text-emerald-900"
-                    : "border-muted-foreground/40 text-muted-foreground"
-                }`}
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setIsDragging(false);
-                  const file = event.dataTransfer.files?.[0];
-                  if (file) {
-                    setUploadFile(file);
-                    setUploadError(null);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    fileInputRef.current?.click();
-                  }
-                }}
-              >
-                Glissez-deposez un fichier CSV ici, ou cliquez pour choisir.
-              </div>
-              {uploadMutation.isPending ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-64" />
-                  <Skeleton className="h-4 w-48" />
-                </div>
-              ) : fileInfo ? (
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium text-foreground">
-                    {fileInfo.name}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {fileInfo.size} · Derniere modification{" "}
-                    {fileInfo.updatedAt}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Aucun fichier selectionne.
-                </p>
-              )}
-              {uploadUnavailable ? (
-                <p className="text-sm text-muted-foreground">
-                  Upload non disponible (endpoint absent).
-                </p>
-              ) : null}
-              {uploadError ? (
-                <p className="text-sm text-rose-600">{uploadError}</p>
-              ) : null}
-              <Button type="submit" disabled={uploadDisabled}>
-                {uploadMutation.isPending ? "Envoi en cours..." : "Envoyer"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <div>
-              <CardTitle>Historique des imports</CardTitle>
-              <CardDescription>Derniers imports executes.</CardDescription>
-            </div>
-            <CardAction>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (!listEndpoint) return;
-                    importsQuery.refetch();
-                  }}
-                  disabled={!listEndpoint || importsQuery.isFetching}
-                  variant="outline"
-                >
-                  {isRefreshing ? "Rafraichir..." : "Rafraichir"}
-                </Button>
-              </div>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            {listUnavailable ? (
-              <EmptyState
-                title="Aucun endpoint d'import detecte"
-                description="Aucun endpoint d'import n'est disponible pour afficher l'historique."
-              />
-            ) : importsQuery.error ? (
-              <ErrorState message={listErrorMessage} />
-            ) : importsQuery.isLoading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-9 w-48" />
-                <div className="space-y-2">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <Skeleton key={index} className="h-10 w-full" />
-                  ))}
-                </div>
-              </div>
-            ) : !hasRows ? (
-              <EmptyState
-                title="Aucun import pour le moment"
-                description="L'historique apparaitra apres la premiere ingestion."
-              />
-            ) : (
-              <DataTable
-                columns={columns}
-                data={rows}
-                isLoading={importsQuery.isLoading}
-                filterPlaceholder="Rechercher un import..."
-                emptyMessage={
-                  hasRows
-                    ? "Aucun resultat ne correspond au filtre."
-                    : "Aucun import pour le moment."
-                }
-              />
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {importCards.map(({ config, endpointInfo }) => (
+          <ImportCard
+            key={config.key}
+            config={config}
+            endpointInfo={endpointInfo}
+          />
+        ))}
       </div>
     </div>
   );
