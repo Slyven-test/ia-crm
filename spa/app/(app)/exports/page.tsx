@@ -84,19 +84,21 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 export default function ExportsPage() {
   const endpointsRecord = endpoints as Record<string, unknown>;
   const exportRecord = isRecord(endpointsRecord.export) ? endpointsRecord.export : null;
+  const recommendationsRecord = isRecord(endpointsRecord.recommendations)
+    ? endpointsRecord.recommendations
+    : null;
+  const recoRunsRecord = isRecord(endpointsRecord.recoRuns) ? endpointsRecord.recoRuns : null;
   const exportRecommendationsEndpoint = resolveStringEndpoint(
     exportRecord?.recommendations
   );
   const recommendationsListEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recommendations &&
-      (endpoints as Record<string, unknown>).recommendations.list
+    recommendationsRecord?.list
   );
   const exportRunsEndpoint = resolveEndpointFnWithFormat(
     exportRecord?.runs
   );
   const recoRunsListEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns.list
+    recoRunsRecord?.list
   );
 
   const [runExportId, setRunExportId] = useState("");
