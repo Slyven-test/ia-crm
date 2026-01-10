@@ -2,7 +2,7 @@
 
 import { type CellContext, type ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table";
@@ -24,17 +24,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 
 type ImportRun = Record<string, unknown>;
-type UploadKind = "clients" | "produits" | "ventes";
 
-const importEndpoints = {
-  status: "/etl/state",
-  trigger: "/etl/ingest",
-};
+type StatusTone = "success" | "error" | "pending" | "neutral";
 
-const uploadKinds: UploadKind[] = ["clients", "produits", "ventes"];
 const statusSuccessValues = new Set([
   "success",
   "ok",
@@ -51,6 +46,13 @@ const statusFailureValues = new Set([
   "echec",
   "canceled",
   "cancelled",
+]);
+const statusPendingValues = new Set([
+  "running",
+  "in_progress",
+  "pending",
+  "processing",
+  "queued",
 ]);
 const importDateKeys = [
   "imported_at",
@@ -69,9 +71,51 @@ function resolveUploadEndpoint(): string | null {
   if (!("imports" in record)) return null;
   const importsValue = record.imports;
   if (!importsValue || typeof importsValue !== "object") return null;
-  const uploadValue = (importsValue as Record<string, unknown>).upload;
-  if (typeof uploadValue === "string" && uploadValue.length > 0) {
-    return uploadValue;
+  const candidates = ["upload", "create", "ingest"];
+  for (const key of candidates) {
+    const uploadValue = (importsValue as Record<string, unknown>)[key];
+    if (typeof uploadValue === "string" && uploadValue.length > 0) {
+      return uploadValue;
+    }
+  }
+  return null;
+}
+
+function resolveUploadFieldName(): string {
+  const record = endpoints as Record<string, unknown>;
+  if (!("imports" in record)) return "file";
+  const importsValue = record.imports;
+  if (!importsValue || typeof importsValue !== "object") return "file";
+  const fieldCandidate =
+    (importsValue as Record<string, unknown>).fileField ??
+    (importsValue as Record<string, unknown>).file_field;
+  return typeof fieldCandidate === "string" && fieldCandidate.length > 0
+    ? fieldCandidate
+    : "file";
+}
+
+function resolveListEndpoint(): string | null {
+  const record = endpoints as Record<string, unknown>;
+  if ("imports" in record) {
+    const importsValue = record.imports;
+    if (importsValue && typeof importsValue === "object") {
+      const candidates = ["list", "history", "runs", "items"];
+      for (const key of candidates) {
+        const listValue = (importsValue as Record<string, unknown>)[key];
+        if (typeof listValue === "string" && listValue.length > 0) {
+          return listValue;
+        }
+      }
+    }
+  }
+  if ("audit" in record) {
+    const auditValue = record.audit;
+    if (auditValue && typeof auditValue === "object") {
+      const logsValue = (auditValue as Record<string, unknown>).logs;
+      if (typeof logsValue === "string" && logsValue.length > 0) {
+        return logsValue;
+      }
+    }
   }
   return null;
 }
@@ -85,7 +129,7 @@ function normalizeRuns(value: unknown): ImportRun[] {
     return value.filter(isRecord);
   }
   if (isRecord(value)) {
-    const candidates = ["results", "items", "runs", "imports", "data"];
+    const candidates = ["results", "items", "runs", "imports", "data", "logs"];
     for (const key of candidates) {
       if (Array.isArray(value[key])) {
         return value[key].filter(isRecord);
@@ -93,15 +137,6 @@ function normalizeRuns(value: unknown): ImportRun[] {
     }
   }
   return [];
-}
-
-function getLastRunAt(value: unknown) {
-  if (!isRecord(value)) return null;
-  const candidate = value.last_run_at ?? value.last_run ?? value.last_run_date;
-  if (typeof candidate === "string" || typeof candidate === "number") {
-    return candidate;
-  }
-  return null;
 }
 
 function pickValue<T>(
@@ -116,28 +151,31 @@ function pickValue<T>(
   return null;
 }
 
-function getTenantLabel(run: ImportRun) {
-  const value = pickValue(
+function pickDateValue(run: ImportRun) {
+  return pickValue(
     run,
-    ["tenant_id", "tenant", "tenant_name", "name"],
+    importDateKeys,
     (candidate): candidate is string | number =>
       typeof candidate === "string" || typeof candidate === "number"
   );
-  return value ? String(value) : null;
 }
 
-function getVerification(run: ImportRun) {
-  if (isRecord(run.verification)) return run.verification;
-  return null;
-}
-
-function parseStatusValue(value: unknown): boolean | null {
-  if (typeof value === "boolean") return value;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return null;
-  if (statusSuccessValues.has(normalized)) return true;
-  if (statusFailureValues.has(normalized)) return false;
+function getStatusValue(run: ImportRun): string | number | boolean | null {
+  const raw = pickValue(
+    run,
+    ["success", "status", "state", "result", "outcome"],
+    isStatusCandidate
+  );
+  if (raw !== null && raw !== undefined) return raw;
+  if (isRecord(run.verification)) {
+    const verification = run.verification;
+    const nested = pickValue(
+      verification,
+      ["success", "status", "state", "result", "outcome"],
+      isStatusCandidate
+    );
+    if (nested !== null && nested !== undefined) return nested;
+  }
   return null;
 }
 
@@ -149,19 +187,7 @@ function isStatusCandidate(value: unknown): value is string | number | boolean {
   );
 }
 
-function getSuccessValue(run: ImportRun) {
-  const raw = pickValue(run, ["success", "status", "state"], isStatusCandidate);
-  const direct = parseStatusValue(raw);
-  if (direct !== null) return direct;
-  const verification = getVerification(run);
-  if (verification) {
-    const parsed = parseStatusValue(verification.success);
-    if (parsed !== null) return parsed;
-  }
-  return null;
-}
-
-function getStatusBadge(value: boolean | null) {
+function getStatusBadge(value: string | number | boolean | null) {
   if (value === null) {
     return (
       <Badge variant="outline" className="capitalize">
@@ -169,141 +195,151 @@ function getStatusBadge(value: boolean | null) {
       </Badge>
     );
   }
-  if (value) {
-    return (
+
+  if (typeof value === "boolean") {
+    return value ? (
       <Badge className="capitalize border-emerald-200 bg-emerald-100 text-emerald-900">
         ok
       </Badge>
+    ) : (
+      <Badge className="capitalize border-rose-200 bg-rose-100 text-rose-900">
+        echec
+      </Badge>
     );
   }
+
+  const label = String(value);
+  const normalized = label.trim().toLowerCase();
+  const tone: StatusTone = statusSuccessValues.has(normalized)
+    ? "success"
+    : statusFailureValues.has(normalized)
+      ? "error"
+      : statusPendingValues.has(normalized)
+        ? "pending"
+        : "neutral";
+
+  if (tone === "success") {
+    return (
+      <Badge className="capitalize border-emerald-200 bg-emerald-100 text-emerald-900">
+        {label}
+      </Badge>
+    );
+  }
+  if (tone === "error") {
+    return (
+      <Badge className="capitalize border-rose-200 bg-rose-100 text-rose-900">
+        {label}
+      </Badge>
+    );
+  }
+  if (tone === "pending") {
+    return (
+      <Badge className="capitalize border-sky-200 bg-sky-100 text-sky-900">
+        {label}
+      </Badge>
+    );
+  }
+
   return (
-    <Badge className="capitalize border-rose-200 bg-rose-100 text-rose-900">
-      echec
+    <Badge variant="outline" className="capitalize">
+      {label}
     </Badge>
   );
 }
 
-function normalizeTenantIds(tenants: unknown, runs: ImportRun[]) {
-  const ids = new Set<string>();
-  if (Array.isArray(tenants)) {
-    tenants.forEach((tenant) => {
-      if (!isRecord(tenant)) return;
-      const value = pickValue(
-        tenant,
-        ["name", "tenant_id", "tenant", "code", "id"],
-        (candidate): candidate is string | number =>
-          typeof candidate === "string" || typeof candidate === "number"
-      );
-      if (value !== null) ids.add(String(value));
-    });
-  }
-  if (ids.size) return Array.from(ids).sort();
-  runs.forEach((run) => {
-    const label = getTenantLabel(run);
-    if (label) ids.add(label);
-  });
-  return Array.from(ids).sort();
-}
-
-function pickDateValue(run: ImportRun) {
-  return pickValue(
-    run,
-    importDateKeys,
-    (candidate): candidate is string | number =>
-      typeof candidate === "string" || typeof candidate === "number"
-  );
-}
-
-function extractFileLabel(value: unknown) {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    return trimmed.split("/").pop() ?? trimmed;
-  }
-  if (isRecord(value)) {
-    const candidate = pickValue(
-      value,
-      ["file", "filename", "file_name", "name", "path", "source"],
-      (item): item is string => typeof item === "string"
-    );
-    if (candidate) return candidate.split("/").pop() ?? candidate;
+function getLinesValue(run: ImportRun) {
+  const keys = [
+    "rows",
+    "lines",
+    "imported_rows",
+    "imported_lines",
+    "records",
+    "count",
+    "total",
+    "items",
+    "inserted",
+  ];
+  for (const key of keys) {
+    const value = run[key];
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const numeric = Number(value);
+      if (!Number.isNaN(numeric)) return numeric;
+    }
+    if (Array.isArray(value)) return value.length;
   }
   return null;
 }
 
-function getFileLabel(run: ImportRun) {
-  const direct = pickValue(
+function getSourceValue(run: ImportRun) {
+  const value = pickValue(
     run,
-    ["file", "filename", "file_name", "name", "path", "source_file", "source"],
-    (candidate): candidate is string => typeof candidate === "string"
+    ["source", "origin", "provider", "system", "channel", "type", "kind"],
+    (candidate): candidate is string | number =>
+      typeof candidate === "string" || typeof candidate === "number"
   );
-  if (direct) return extractFileLabel(direct);
-  if (Array.isArray(run.ingested_files)) {
-    const labels = run.ingested_files
-      .map(extractFileLabel)
-      .filter((item): item is string => Boolean(item));
-    if (labels.length === 1) return labels[0];
-    if (labels.length > 1) {
-      return `${labels[0]} (+${labels.length - 1})`;
+  return value ? String(value) : null;
+}
+
+function getMessageValue(run: ImportRun) {
+  const value = pickValue(
+    run,
+    ["message", "detail", "error", "status_message", "summary"],
+    (candidate): candidate is string | number | Record<string, unknown> =>
+      typeof candidate === "string" ||
+      typeof candidate === "number" ||
+      (candidate && typeof candidate === "object")
+  );
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
     }
   }
   return null;
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes)) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let index = -1;
+  let value = bytes;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[index]}`;
+}
+
 export default function ImportsPage() {
   const uploadEndpoint = resolveUploadEndpoint();
+  const uploadFieldName = resolveUploadFieldName();
+  const listEndpoint = resolveListEndpoint();
   const [uploadUnavailable, setUploadUnavailable] = useState<boolean>(
     uploadEndpoint === null
   );
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadKind, setUploadKind] = useState<UploadKind>("clients");
   const [fileInputKey, setFileInputKey] = useState<number>(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const historyQuery = useQuery({
-    queryKey: ["etl-state"],
-    queryFn: () => apiRequest<unknown>(importEndpoints.status),
-  });
-
-  const tenantsQuery = useQuery({
-    queryKey: ["tenants"],
-    queryFn: () => apiRequest<unknown>(endpoints.tenants.list),
-  });
-
-  const rows = useMemo(
-    () => normalizeRuns(historyQuery.data),
-    [historyQuery.data]
-  );
-  const tenantIds = useMemo(
-    () => normalizeTenantIds(tenantsQuery.data, rows),
-    [tenantsQuery.data, rows]
-  );
-  const lastRunAt = getLastRunAt(historyQuery.data);
-
-  const ingestMutation = useMutation({
-    mutationFn: async (tenants: string[]) =>
-      apiRequest(importEndpoints.trigger, {
-        method: "POST",
-        body: { tenants, isolate_schema: false },
-      }),
-    onSuccess: (_, tenants) => {
-      toast.success(
-        tenants.length
-          ? `Import lance pour ${tenants.length} tenant(s).`
-          : "Import lance."
-      );
-      historyQuery.refetch();
+  const importsQuery = useQuery({
+    queryKey: ["imports", listEndpoint ?? "none"],
+    queryFn: () => {
+      if (!listEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(listEndpoint);
     },
-    onError: (error) => {
-      const message =
-        error instanceof ApiError && error.message
-          ? error.message
-          : "Impossible de lancer l'import.";
-      toast.error(message);
-    },
+    enabled: Boolean(listEndpoint),
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (payload: { file: File; kind: UploadKind }) => {
+    mutationFn: async (file: File) => {
       if (!uploadEndpoint) {
         throw new ApiError({
           status: 404,
@@ -311,18 +347,20 @@ export default function ImportsPage() {
         });
       }
       const formData = new FormData();
-      formData.append("file", payload.file);
-      formData.append("type", payload.kind);
+      formData.append(uploadFieldName, file);
       return apiRequest(uploadEndpoint, {
         method: "POST",
         body: formData,
       });
     },
     onSuccess: () => {
-      toast.success("Fichier envoye.");
+      toast.success("Fichier envoye avec succes.");
       setUploadFile(null);
       setFileInputKey((prev) => prev + 1);
-      historyQuery.refetch();
+      setUploadError(null);
+      if (listEndpoint) {
+        importsQuery.refetch();
+      }
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 404) {
@@ -332,6 +370,7 @@ export default function ImportsPage() {
         error instanceof ApiError && error.message
           ? error.message
           : "Impossible d'envoyer le fichier.";
+      setUploadError(message);
       toast.error(message);
     },
   });
@@ -341,9 +380,9 @@ export default function ImportsPage() {
       {
         id: "status",
         header: "Statut",
-        accessorFn: (row) => getSuccessValue(row),
+        accessorFn: (row) => getStatusValue(row),
         cell: (ctx: CellContext<ImportRun, unknown>) =>
-          getStatusBadge(getSuccessValue(ctx.row.original)),
+          getStatusBadge(getStatusValue(ctx.row.original)),
       },
       {
         id: "date",
@@ -353,137 +392,187 @@ export default function ImportsPage() {
           formatDate(pickDateValue(ctx.row.original)),
       },
       {
-        id: "file",
-        header: "Fichier",
-        accessorFn: (row) => getFileLabel(row) ?? "-",
+        id: "lines",
+        header: "Lignes",
+        accessorFn: (row) => getLinesValue(row),
         cell: (ctx: CellContext<ImportRun, unknown>) =>
-          getFileLabel(ctx.row.original) ?? "-",
+          formatNumber(getLinesValue(ctx.row.original)),
+      },
+      {
+        id: "source",
+        header: "Source",
+        accessorFn: (row) => getSourceValue(row) ?? "-",
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          getSourceValue(ctx.row.original) ?? "-",
+      },
+      {
+        id: "message",
+        header: "Message",
+        accessorFn: (row) => getMessageValue(row) ?? "-",
+        cell: (ctx: CellContext<ImportRun, unknown>) =>
+          getMessageValue(ctx.row.original) ?? "-",
       },
     ],
     []
   );
 
+  const rows = useMemo(
+    () => (listEndpoint ? normalizeRuns(importsQuery.data) : []),
+    [importsQuery.data, listEndpoint]
+  );
   const hasRows = rows.length > 0;
-  const isRefreshing = historyQuery.isFetching && !historyQuery.isLoading;
-  const historyUnavailable =
-    historyQuery.error instanceof ApiError && historyQuery.error.status === 404;
-  const errorMessage =
-    historyQuery.error instanceof ApiError
-      ? historyQuery.error.message
+  const isRefreshing = importsQuery.isFetching && !importsQuery.isLoading;
+  const listUnavailable =
+    !listEndpoint ||
+    (importsQuery.error instanceof ApiError &&
+      importsQuery.error.status === 404);
+  const listErrorMessage =
+    importsQuery.error instanceof ApiError
+      ? importsQuery.error.message
       : "Impossible de charger les imports.";
-  const launchDisabled = ingestMutation.isPending || tenantIds.length === 0;
+  const uploadDisabled =
+    uploadUnavailable || uploadMutation.isPending || uploadFile === null;
+  const fileInfo = uploadFile
+    ? {
+        name: uploadFile.name,
+        size: formatBytes(uploadFile.size),
+        updatedAt: formatDate(uploadFile.lastModified),
+      }
+    : null;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Imports"
-        description="Suivi des executions ETL et ingestion des donnees."
+        description="Sources: iSaVigne / Odoo / Woo CSV."
       />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader className="border-b">
             <div>
-              <CardTitle>Uploader un fichier</CardTitle>
+              <CardTitle>Importer un fichier</CardTitle>
               <CardDescription>
                 Envoyez un CSV pour lancer une ingestion manuelle.
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            {uploadUnavailable ? (
-              <EmptyState
-                title="Non disponible"
-                description="L'upload de fichiers n'est pas encore disponible."
-              />
-            ) : (
-              <form
-                className="space-y-4"
-                onSubmit={(event) => {
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!uploadEndpoint) {
+                  setUploadUnavailable(true);
+                  setUploadError("Upload non disponible.");
+                  toast.error("Endpoint d'upload indisponible.");
+                  return;
+                }
+                if (!uploadFile) {
+                  const message = "Selectionnez un fichier CSV.";
+                  setUploadError(message);
+                  toast.error(message);
+                  return;
+                }
+                setUploadError(null);
+                uploadMutation.mutate(uploadFile);
+              }}
+            >
+              <div className="space-y-2">
+                <Label htmlFor="upload-file">Fichier CSV</Label>
+                <Input
+                  ref={fileInputRef}
+                  key={fileInputKey}
+                  id="upload-file"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    setUploadFile(event.target.files?.[0] ?? null);
+                    setUploadError(null);
+                  }}
+                />
+              </div>
+              <div
+                className={`rounded-md border border-dashed p-4 text-sm ${
+                  isDragging
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                    : "border-muted-foreground/40 text-muted-foreground"
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(event) => {
                   event.preventDefault();
-                  if (!uploadEndpoint) {
-                    setUploadUnavailable(true);
-                    toast.error("Endpoint d'upload indisponible.");
-                    return;
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDragging(false);
+                  const file = event.dataTransfer.files?.[0];
+                  if (file) {
+                    setUploadFile(file);
+                    setUploadError(null);
                   }
-                  if (!uploadFile) {
-                    toast.error("Selectionnez un fichier CSV.");
-                    return;
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    fileInputRef.current?.click();
                   }
-                  uploadMutation.mutate({ file: uploadFile, kind: uploadKind });
                 }}
               >
+                Glissez-deposez un fichier CSV ici, ou cliquez pour choisir.
+              </div>
+              {uploadMutation.isPending ? (
                 <div className="space-y-2">
-                  <Label htmlFor="upload-file">Fichier CSV</Label>
-                  <Input
-                    key={fileInputKey}
-                    id="upload-file"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) =>
-                      setUploadFile(event.target.files?.[0] ?? null)
-                    }
-                  />
+                  <Skeleton className="h-4 w-64" />
+                  <Skeleton className="h-4 w-48" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="upload-kind">Type de donnees</Label>
-                  <select
-                    id="upload-kind"
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                    value={uploadKind}
-                    onChange={(event) =>
-                      setUploadKind(event.target.value as UploadKind)
-                    }
-                  >
-                    {uploadKinds.map((kind) => (
-                      <option key={kind} value={kind}>
-                        {kind}
-                      </option>
-                    ))}
-                  </select>
+              ) : fileInfo ? (
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-foreground">
+                    {fileInfo.name}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {fileInfo.size} · Derniere modification{" "}
+                    {fileInfo.updatedAt}
+                  </p>
                 </div>
-                <Button type="submit" disabled={uploadMutation.isPending}>
-                  {uploadMutation.isPending ? "Upload..." : "Envoyer le fichier"}
-                </Button>
-              </form>
-            )}
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Aucun fichier selectionne.
+                </p>
+              )}
+              {uploadUnavailable ? (
+                <p className="text-sm text-muted-foreground">
+                  Upload non disponible (endpoint absent).
+                </p>
+              ) : null}
+              {uploadError ? (
+                <p className="text-sm text-rose-600">{uploadError}</p>
+              ) : null}
+              <Button type="submit" disabled={uploadDisabled}>
+                {uploadMutation.isPending ? "Envoi en cours..." : "Envoyer"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="border-b">
             <div>
               <CardTitle>Historique des imports</CardTitle>
-              <CardDescription>
-                Derniers imports executes sur les tenants.
-                {lastRunAt ? ` Dernier run: ${formatDate(lastRunAt)}.` : ""}
-              </CardDescription>
-              {tenantIds.length ? (
-                <p className="text-xs text-muted-foreground">
-                  Tenants detectes: {tenantIds.length}
-                </p>
-              ) : null}
+              <CardDescription>Derniers imports executes.</CardDescription>
             </div>
             <CardAction>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => {
-                    if (!tenantIds.length) {
-                      toast.error(
-                        "Aucun tenant disponible pour lancer l'import."
-                      );
-                      return;
-                    }
-                    ingestMutation.mutate(tenantIds);
+                    if (!listEndpoint) return;
+                    importsQuery.refetch();
                   }}
-                  disabled={launchDisabled}
-                >
-                  {ingestMutation.isPending ? "Import..." : "Lancer import"}
-                </Button>
-                <Button
-                  size="sm"
+                  disabled={!listEndpoint || importsQuery.isFetching}
                   variant="outline"
-                  onClick={() => historyQuery.refetch()}
-                  disabled={historyQuery.isFetching}
                 >
                   {isRefreshing ? "Rafraichir..." : "Rafraichir"}
                 </Button>
@@ -491,14 +580,14 @@ export default function ImportsPage() {
             </CardAction>
           </CardHeader>
           <CardContent>
-            {historyUnavailable ? (
+            {listUnavailable ? (
               <EmptyState
-                title="Non disponible"
-                description="L'historique des imports n'est pas disponible."
+                title="Aucun endpoint d'import detecte"
+                description="Aucun endpoint d'import n'est disponible pour afficher l'historique."
               />
-            ) : historyQuery.error ? (
-              <ErrorState message={errorMessage} />
-            ) : historyQuery.isLoading ? (
+            ) : importsQuery.error ? (
+              <ErrorState message={listErrorMessage} />
+            ) : importsQuery.isLoading ? (
               <div className="space-y-3">
                 <Skeleton className="h-9 w-48" />
                 <div className="space-y-2">
@@ -516,7 +605,7 @@ export default function ImportsPage() {
               <DataTable
                 columns={columns}
                 data={rows}
-                isLoading={historyQuery.isLoading}
+                isLoading={importsQuery.isLoading}
                 filterPlaceholder="Rechercher un import..."
                 emptyMessage={
                   hasRows
