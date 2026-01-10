@@ -19,12 +19,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 import { humanizeKey } from "@/lib/format";
 
 type RecommendationRow = Record<string, unknown>;
+type RunRow = Record<string, unknown>;
+
+type EndpointWithRunId = (
+  runId: string | number,
+  format: "csv" | "json"
+) => string;
 
 type RecommendationsPayload = {
   rows: RecommendationRow[];
@@ -33,10 +41,23 @@ type RecommendationsPayload = {
   raw?: unknown;
 };
 
+type RunExportPayload = {
+  runId: string;
+  format: "csv" | "json";
+};
+
 const APPROVABLE_STATUSES = new Set(["pending", "draft", "proposed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function resolveStringEndpoint(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function resolveEndpointFnWithFormat(value: unknown): EndpointWithRunId | null {
+  return typeof value === "function" ? (value as EndpointWithRunId) : null;
 }
 
 function normalizeRows(value: unknown): RecommendationRow[] {
@@ -45,6 +66,21 @@ function normalizeRows(value: unknown): RecommendationRow[] {
   }
   if (isRecord(value)) {
     const candidates = ["items", "results", "data", "recommendations"];
+    for (const key of candidates) {
+      if (Array.isArray(value[key])) {
+        return value[key].filter(isRecord);
+      }
+    }
+  }
+  return [];
+}
+
+function normalizeRuns(value: unknown): RunRow[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+  if (isRecord(value)) {
+    const candidates = ["items", "results", "data", "runs"];
     for (const key of candidates) {
       if (Array.isArray(value[key])) {
         return value[key].filter(isRecord);
@@ -156,6 +192,16 @@ function getRowId(row: RecommendationRow): number | null {
   return null;
 }
 
+function getRunId(row: RunRow): string | number | null {
+  if (typeof row.run_id === "string" || typeof row.run_id === "number") {
+    return row.run_id;
+  }
+  if (typeof row.id === "string" || typeof row.id === "number") {
+    return row.id;
+  }
+  return null;
+}
+
 function getRowStatus(row: RecommendationRow): string | null {
   const candidate = row.status ?? row.state ?? row.approval_status;
   if (typeof candidate === "string" && candidate.trim() !== "") {
@@ -179,21 +225,33 @@ function isRowApprovable(row: RecommendationRow): boolean {
   return approvedFlag === false;
 }
 
-async function fetchRecommendations(): Promise<RecommendationsPayload> {
-  try {
-    const jsonData = await apiRequest<unknown>(endpoints.recommendations.list);
-    const rows = normalizeRows(jsonData);
-    return { rows, headers: buildHeaders(rows), source: "json", raw: jsonData };
-  } catch (error) {
-    if (
-      !(error instanceof ApiError) ||
-      ![404, 405, 501].includes(error.status)
-    ) {
-      throw error;
+async function fetchRecommendations(
+  listEndpoint: string | null,
+  exportEndpoint: string | null
+): Promise<RecommendationsPayload> {
+  if (listEndpoint) {
+    try {
+      const jsonData = await apiRequest<unknown>(listEndpoint);
+      const rows = normalizeRows(jsonData);
+      return { rows, headers: buildHeaders(rows), source: "json", raw: jsonData };
+    } catch (error) {
+      if (
+        !(error instanceof ApiError) ||
+        ![404, 405, 501].includes(error.status)
+      ) {
+        throw error;
+      }
     }
   }
 
-  const csvText = await apiRequest<string>(endpoints.export.recommendations, {
+  if (!exportEndpoint) {
+    throw new ApiError({
+      status: 404,
+      message: "Endpoint recommandations indisponible.",
+    });
+  }
+
+  const csvText = await apiRequest<string>(exportEndpoint, {
     headers: { Accept: "text/csv" },
   });
   const parsed = parseCsv(csvText);
@@ -212,13 +270,64 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 
 export default function RecommendationsPage() {
   const queryClient = useQueryClient();
-  const [isGenerateAvailable, setGenerateAvailable] = useState(true);
-  const [isApproveAvailable, setApproveAvailable] = useState(true);
+  const recommendationsListEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recommendations &&
+      (endpoints as Record<string, unknown>).recommendations.list
+  );
+  const recommendationsGenerateEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recommendations &&
+      (endpoints as Record<string, unknown>).recommendations.generate
+  );
+  const recommendationsApproveEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recommendations &&
+      (endpoints as Record<string, unknown>).recommendations.approve
+  );
+  const exportRecommendationsEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.export &&
+      (endpoints as Record<string, unknown>).export.recommendations
+  );
+  const exportRunsEndpoint = resolveEndpointFnWithFormat(
+    (endpoints as Record<string, unknown>)?.export &&
+      (endpoints as Record<string, unknown>).export.runs
+  );
+  const recoRunsListEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns.list
+  );
+
+  const [isGenerateAvailable, setGenerateAvailable] = useState(
+    Boolean(recommendationsGenerateEndpoint)
+  );
+  const [isApproveAvailable, setApproveAvailable] = useState(
+    Boolean(recommendationsApproveEndpoint)
+  );
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [runExportId, setRunExportId] = useState("");
+
+  const recosAvailable =
+    Boolean(recommendationsListEndpoint) || Boolean(exportRecommendationsEndpoint);
 
   const query = useQuery({
-    queryKey: ["recommendations"],
-    queryFn: fetchRecommendations,
+    queryKey: [
+      "recommendations",
+      recommendationsListEndpoint ?? "none",
+      exportRecommendationsEndpoint ?? "none",
+    ],
+    queryFn: () =>
+      fetchRecommendations(
+        recommendationsListEndpoint,
+        exportRecommendationsEndpoint
+      ),
+    enabled: recosAvailable,
+  });
+
+  const runsQuery = useQuery({
+    queryKey: ["reco-runs", "list", recoRunsListEndpoint ?? "none"],
+    queryFn: () => {
+      if (!recoRunsListEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(recoRunsListEndpoint);
+    },
+    enabled: Boolean(recoRunsListEndpoint),
   });
 
   const hasData = (query.data?.rows ?? []).length > 0;
@@ -231,10 +340,15 @@ export default function RecommendationsPage() {
 
   const csvDownload = useMutation({
     mutationFn: async () => {
-      const csvPayload = await apiRequest<string>(
-        endpoints.export.recommendations,
-        { headers: { Accept: "text/csv" } }
-      );
+      if (!exportRecommendationsEndpoint) {
+        throw new ApiError({
+          status: 404,
+          message: "Export recommandations indisponible.",
+        });
+      }
+      const csvPayload = await apiRequest<string>(exportRecommendationsEndpoint, {
+        headers: { Accept: "text/csv" },
+      });
       triggerDownload(csvPayload, "recommendations.csv", "text/csv");
     },
     onSuccess: () => {
@@ -247,10 +361,16 @@ export default function RecommendationsPage() {
 
   const jsonDownload = useMutation({
     mutationFn: async () => {
+      if (!recommendationsListEndpoint) {
+        throw new ApiError({
+          status: 404,
+          message: "Export JSON indisponible.",
+        });
+      }
       const payload =
         query.data?.source === "json"
           ? query.data?.raw
-          : await apiRequest<unknown>(endpoints.recommendations.list);
+          : await apiRequest<unknown>(recommendationsListEndpoint);
       triggerDownload(
         JSON.stringify(payload ?? {}, null, 2),
         "recommendations.json",
@@ -266,8 +386,12 @@ export default function RecommendationsPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(endpoints.recommendations.generate, { method: "POST" }),
+    mutationFn: () => {
+      if (!recommendationsGenerateEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest(recommendationsGenerateEndpoint, { method: "POST" });
+    },
     onSuccess: async () => {
       toast.success("Generation des recommandations lancee.");
       await Promise.all([
@@ -290,11 +414,15 @@ export default function RecommendationsPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (recoId: number) =>
-      apiRequest(endpoints.recommendations.approve, {
+    mutationFn: (recoId: number) => {
+      if (!recommendationsApproveEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest(recommendationsApproveEndpoint, {
         method: "POST",
         body: [recoId],
-      }),
+      });
+    },
     onMutate: (recoId) => {
       setApprovingId(recoId);
     },
@@ -316,6 +444,37 @@ export default function RecommendationsPage() {
     },
     onSettled: () => {
       setApprovingId(null);
+    },
+  });
+
+  const runExportMutation = useMutation({
+    mutationFn: async ({ runId, format }: RunExportPayload) => {
+      if (!exportRunsEndpoint) {
+        throw new ApiError({ status: 404, message: "Export indisponible." });
+      }
+      if (format === "csv") {
+        const payload = await apiRequest<string>(exportRunsEndpoint(runId, "csv"), {
+          headers: { Accept: "text/csv" },
+        });
+        triggerDownload(payload, `run_${runId}.csv`, "text/csv");
+        return { format };
+      }
+      const jsonPayload = await apiRequest<unknown>(
+        exportRunsEndpoint(runId, "json")
+      );
+      triggerDownload(
+        JSON.stringify(jsonPayload ?? {}, null, 2),
+        `run_${runId}.json`,
+        "application/json"
+      );
+      return { format };
+    },
+    onSuccess: (_, variables) => {
+      const label = variables.format === "json" ? "JSON" : "CSV";
+      toast.success(`Export ${label} du run ${variables.runId} telecharge.`);
+    },
+    onError: () => {
+      toast.error("Impossible d'exporter ce run.");
     },
   });
 
@@ -373,6 +532,15 @@ export default function RecommendationsPage() {
     query.data?.source,
   ]);
 
+  const runOptions = useMemo(() => {
+    const runs = normalizeRuns(runsQuery.data);
+    const ids = runs
+      .map((run) => getRunId(run))
+      .filter((value): value is string | number => value !== null)
+      .map((value) => String(value));
+    return Array.from(new Set(ids));
+  }, [runsQuery.data]);
+
   const isGeneratePending = generateMutation.isPending;
   const generateLabel = isGenerateAvailable
     ? isGeneratePending
@@ -413,13 +581,18 @@ export default function RecommendationsPage() {
                 source: export recommandations
               </p>
             ) : null}
+            {!recosAvailable ? (
+              <p className="text-xs text-muted-foreground">
+                Non disponible (endpoint recommandations absent).
+              </p>
+            ) : null}
           </div>
           <CardAction className="flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="outline"
               onClick={() => query.refetch()}
-              disabled={query.isFetching}
+              disabled={!recosAvailable || query.isFetching}
             >
               {isRefreshing ? "Rafraichir..." : "Rafraichir"}
             </Button>
@@ -427,24 +600,27 @@ export default function RecommendationsPage() {
               size="sm"
               variant="outline"
               onClick={() => csvDownload.mutate()}
-              disabled={csvDownload.isPending}
+              disabled={!exportRecommendationsEndpoint || csvDownload.isPending}
             >
-              Telecharger CSV
+              {exportRecommendationsEndpoint ? "Telecharger CSV" : "Non disponible"}
             </Button>
-            {query.data?.source === "json" ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => jsonDownload.mutate()}
-                disabled={jsonDownload.isPending}
-              >
-                Telecharger JSON
-              </Button>
-            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => jsonDownload.mutate()}
+              disabled={!recommendationsListEndpoint || jsonDownload.isPending}
+            >
+              {recommendationsListEndpoint ? "Telecharger JSON" : "Non disponible"}
+            </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          {query.error ? (
+          {!recosAvailable ? (
+            <EmptyState
+              title="Recommandations indisponibles."
+              description="Aucun endpoint ne permet de charger les recommandations."
+            />
+          ) : query.error ? (
             <ErrorState message={queryErrorMessage} />
           ) : query.isLoading ? (
             <div className="space-y-3">
@@ -489,6 +665,91 @@ export default function RecommendationsPage() {
                   : "Aucune recommandation disponible."
               }
             />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b">
+          <div>
+            <CardTitle>Exports par run</CardTitle>
+            <CardDescription>
+              Telechargez les recommandations generees par un run specifique.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!exportRunsEndpoint ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+              Non disponible (endpoint export runs absent).
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="run-export-id">Run ID</Label>
+                <Input
+                  id="run-export-id"
+                  value={runExportId}
+                  onChange={(event) => setRunExportId(event.target.value)}
+                  list={runOptions.length ? "run-export-options" : undefined}
+                  placeholder="Ex: 2024-09-12T10:15"
+                />
+                {runOptions.length ? (
+                  <datalist id="run-export-options">
+                    {runOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                ) : null}
+                {recoRunsListEndpoint ? (
+                  runsQuery.isLoading ? (
+                    <p className="text-xs text-muted-foreground">
+                      Chargement des runs disponibles...
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {runOptions.length
+                        ? "Selectionnez un run recent ou saisissez un identifiant."
+                        : "Saisissez un identifiant de run."}
+                    </p>
+                  )
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Liste des runs indisponible (endpoint manquant).
+                  </p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const value = runExportId.trim();
+                  if (!value) {
+                    toast.error("Renseignez un run id.");
+                    return;
+                  }
+                  runExportMutation.mutate({ runId: value, format: "csv" });
+                }}
+                disabled={runExportMutation.isPending}
+              >
+                Exporter CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const value = runExportId.trim();
+                  if (!value) {
+                    toast.error("Renseignez un run id.");
+                    return;
+                  }
+                  runExportMutation.mutate({ runId: value, format: "json" });
+                }}
+                disabled={runExportMutation.isPending}
+              >
+                Exporter JSON
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

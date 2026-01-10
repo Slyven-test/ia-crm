@@ -20,7 +20,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
@@ -30,6 +39,22 @@ type RunRow = Record<string, unknown>;
 
 type RunSummaryDownload = {
   runId: string | number;
+};
+
+type RunFormState = {
+  topN: number;
+  segment: string;
+};
+
+type RunItemRow = Record<string, unknown>;
+
+type EndpointWithRunId = (runId: string | number, format?: string) => string;
+
+type EndpointWithId = (runId: string | number) => string;
+
+const defaultRunForm: RunFormState = {
+  topN: 5,
+  segment: "",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,6 +74,33 @@ function normalizeRuns(value: unknown): RunRow[] {
     }
   }
   return [];
+}
+
+function normalizeItems(value: unknown): RunItemRow[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+  if (isRecord(value)) {
+    const candidates = ["items", "results", "data", "recommendations"];
+    for (const key of candidates) {
+      if (Array.isArray(value[key])) {
+        return value[key].filter(isRecord);
+      }
+    }
+  }
+  return [];
+}
+
+function resolveStringEndpoint(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function resolveEndpointFn(value: unknown): EndpointWithId | null {
+  return typeof value === "function" ? (value as EndpointWithId) : null;
+}
+
+function resolveEndpointFnWithFormat(value: unknown): EndpointWithRunId | null {
+  return typeof value === "function" ? (value as EndpointWithRunId) : null;
 }
 
 function getRunId(run: RunRow): string | number | null {
@@ -262,6 +314,20 @@ function getMetricsSummary(run: RunRow) {
   return metrics.map(({ label, value }) => `${label}: ${formatNumber(value)}`).join(" · ");
 }
 
+function buildHeaders(rows: RunItemRow[]): string[] {
+  const headers: string[] = [];
+  const seen = new Set<string>();
+  rows.forEach((row) => {
+    Object.keys(row).forEach((key) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        headers.push(key);
+      }
+    });
+  });
+  return headers;
+}
+
 function triggerDownload(payload: string, filename: string, mimeType: string) {
   const blob = new Blob([payload], { type: mimeType });
   const url = window.URL.createObjectURL(blob);
@@ -277,17 +343,53 @@ export default function RunsPage() {
   const [activeDownloadRun, setActiveDownloadRun] = useState<
     string | number | null
   >(null);
+  const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
+
+  const recoRunsListEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns.list
+  );
+  const recoRunItemsEndpoint = resolveEndpointFn(
+    (endpoints as Record<string, unknown>)?.recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns &&
+      (endpoints as Record<string, unknown>).recoRuns.items
+  );
+  const runGenerateEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.recommendations &&
+      (endpoints as Record<string, unknown>).recommendations &&
+      (endpoints as Record<string, unknown>).recommendations.generate
+  );
+  const runExportEndpoint = resolveEndpointFnWithFormat(
+    (endpoints as Record<string, unknown>)?.export &&
+      (endpoints as Record<string, unknown>).export &&
+      (endpoints as Record<string, unknown>).export.runs
+  );
+  const runSummaryEndpoint = resolveEndpointFn(
+    (endpoints as Record<string, unknown>)?.export &&
+      (endpoints as Record<string, unknown>).export &&
+      (endpoints as Record<string, unknown>).export.runSummary
+  );
 
   const query = useQuery({
-    queryKey: ["reco-runs"],
-    queryFn: () => apiRequest<unknown>(endpoints.recoRuns.list),
+    queryKey: ["reco-runs", recoRunsListEndpoint ?? "none"],
+    queryFn: () => {
+      if (!recoRunsListEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(recoRunsListEndpoint);
+    },
+    enabled: Boolean(recoRunsListEndpoint),
   });
 
   const downloadMutation = useMutation({
     mutationFn: async ({ runId }: RunSummaryDownload) => {
+      if (!runExportEndpoint) {
+        throw new ApiError({ status: 404, message: "Export non disponible." });
+      }
       try {
         const csvPayload = await apiRequest<string>(
-          endpoints.export.runs(runId, "csv"),
+          runExportEndpoint(runId, "csv"),
           { headers: { Accept: "text/csv" } }
         );
         triggerDownload(csvPayload, `run_${runId}.csv`, "text/csv");
@@ -298,7 +400,7 @@ export default function RunsPage() {
           [404, 405, 501].includes(error.status)
         ) {
           const jsonPayload = await apiRequest<unknown>(
-            endpoints.export.runs(runId, "json")
+            runExportEndpoint(runId, "json")
           );
           triggerDownload(
             JSON.stringify(jsonPayload, null, 2),
@@ -326,17 +428,31 @@ export default function RunsPage() {
     },
   });
 
-  const relaunchMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(endpoints.recommendations.generate, {
-        method: "POST",
-      }),
-    onSuccess: () => {
-      toast.success("Relance des recommandations lancee.");
-      query.refetch();
+  const runMutation = useMutation({
+    mutationFn: async (payload: RunFormState) => {
+      if (!runGenerateEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint de run absent." });
+      }
+      const params = new URLSearchParams();
+      params.set("top_n", String(payload.topN || 5));
+      if (payload.segment.trim()) {
+        params.set("segment", payload.segment.trim());
+      }
+      const endpoint = `${runGenerateEndpoint}?${params.toString()}`;
+      return apiRequest(endpoint, { method: "POST" });
     },
-    onError: () => {
-      toast.error("Impossible de relancer les recommandations.");
+    onSuccess: () => {
+      toast.success("Run de recommandations lance.");
+      query.refetch();
+      setRunDialogOpen(false);
+      setRunForm(defaultRunForm);
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 404) {
+        toast.error("Run non disponible.");
+        return;
+      }
+      toast.error("Impossible de lancer le run.");
     },
   });
 
@@ -410,9 +526,36 @@ export default function RunsPage() {
   const exportRunId = selectedRun ? getRunExportId(selectedRun) : null;
   const summaryQuery = useQuery({
     queryKey: ["reco-runs", exportRunId, "summary"],
-    queryFn: () => apiRequest<unknown>(endpoints.export.runSummary(exportRunId!)),
-    enabled: exportRunId !== null,
+    queryFn: () =>
+      runSummaryEndpoint
+        ? apiRequest<unknown>(runSummaryEndpoint(exportRunId!))
+        : Promise.resolve(null),
+    enabled: exportRunId !== null && Boolean(runSummaryEndpoint),
   });
+
+  const itemsQuery = useQuery({
+    queryKey: ["reco-runs", selectedRunId, "items"],
+    queryFn: () =>
+      recoRunItemsEndpoint
+        ? apiRequest<unknown>(recoRunItemsEndpoint(selectedRunId!))
+        : Promise.resolve(null),
+    enabled: selectedRunId !== null && Boolean(recoRunItemsEndpoint),
+  });
+
+  const itemRows = useMemo(
+    () => normalizeItems(itemsQuery.data),
+    [itemsQuery.data]
+  );
+  const itemHeaders = useMemo(() => buildHeaders(itemRows), [itemRows]);
+  const itemColumns = useMemo<ColumnDef<RunItemRow>[]>(
+    () =>
+      itemHeaders.map((header) => ({
+        accessorKey: header,
+        header,
+        cell: ({ row }) => formatCellValue(row.original[header]),
+      })),
+    [itemHeaders]
+  );
 
   const columns = useMemo<ColumnDef<RunRow>[]>(
     () => [
@@ -522,8 +665,7 @@ export default function RunsPage() {
       {
         id: "metrics",
         header: "Comptages",
-        accessorFn: (row) =>
-          getMetricsSummary(row),
+        accessorFn: (row) => getMetricsSummary(row),
         cell: ({ row }) => getMetricsSummary(row.original),
       },
       ...dynamicKeys.map<ColumnDef<RunRow>>((key) => ({
@@ -561,13 +703,17 @@ export default function RunsPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  if (!exportId) return;
+                  if (!exportId || !runExportEndpoint) return;
                   setActiveDownloadRun(exportId);
                   downloadMutation.mutate({ runId: exportId });
                 }}
-                disabled={!exportId || isDownloading}
+                disabled={!exportId || !runExportEndpoint || isDownloading}
               >
-                {isDownloading ? "Export..." : "Exporter"}
+                {runExportEndpoint
+                  ? isDownloading
+                    ? "Export..."
+                    : "Exporter"
+                  : "Non disponible"}
               </Button>
               <Button size="sm" variant="ghost" asChild>
                 <Link href="/exports">Voir exports</Link>
@@ -577,11 +723,14 @@ export default function RunsPage() {
         },
       },
     ],
-    [downloadMutation, activeDownloadRun, dynamicKeys]
+    [downloadMutation, activeDownloadRun, dynamicKeys, runExportEndpoint]
   );
 
   const hasRows = rows.length > 0;
   const isRefreshing = query.isFetching && !query.isLoading;
+  const listUnavailable =
+    !recoRunsListEndpoint ||
+    (query.error instanceof ApiError && query.error.status === 404);
   const errorMessage =
     query.error instanceof ApiError
       ? query.error.message
@@ -605,16 +754,16 @@ export default function RunsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                onClick={() => relaunchMutation.mutate()}
-                disabled={relaunchMutation.isPending}
+                onClick={() => setRunDialogOpen(true)}
+                disabled={!runGenerateEndpoint}
               >
-                {relaunchMutation.isPending ? "Relance..." : "Relancer"}
+                {runGenerateEndpoint ? "Nouveau run" : "Non disponible"}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => query.refetch()}
-                disabled={query.isFetching}
+                disabled={!recoRunsListEndpoint || query.isFetching}
               >
                 {isRefreshing ? "Rafraichir..." : "Rafraichir"}
               </Button>
@@ -622,7 +771,12 @@ export default function RunsPage() {
           </CardAction>
         </CardHeader>
         <CardContent>
-          {query.error ? (
+          {listUnavailable ? (
+            <EmptyState
+              title="Endpoint runs indisponible"
+              description="Impossible de lister les runs (endpoint absent)."
+            />
+          ) : query.error ? (
             <ErrorState message={errorMessage} />
           ) : query.isLoading ? (
             <div className="space-y-3">
@@ -659,27 +813,128 @@ export default function RunsPage() {
           if (!open) setSelectedRun(null);
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Details du run</DialogTitle>
+            <DialogDescription>
+              Resume, recommandations generees et exports associes.
+            </DialogDescription>
           </DialogHeader>
-          {summaryQuery.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-32" />
-              <Skeleton className="h-40 w-full" />
-            </div>
-          ) : selectedRun ? (
-            <div className="space-y-3">
-              {summaryQuery.error ? (
-                <ErrorState message="Details complets indisponibles, affichage du run local." />
-              ) : null}
-              <pre className="max-h-[60vh] overflow-auto rounded-xl border bg-muted/40 p-4 text-xs">
-                {formatJson(summaryQuery.data ?? selectedRun)}
-              </pre>
+          {selectedRun ? (
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm font-medium">Resume</p>
+                {runSummaryEndpoint ? (
+                  summaryQuery.isLoading ? (
+                    <div className="mt-3 space-y-2">
+                      <Skeleton className="h-6 w-32" />
+                      <Skeleton className="h-32 w-full" />
+                    </div>
+                  ) : summaryQuery.error ? (
+                    <ErrorState message="Details complets indisponibles, affichage du run local." />
+                  ) : (
+                    <pre className="mt-3 max-h-[50vh] overflow-auto rounded-xl border bg-muted/40 p-4 text-xs">
+                      {formatJson(summaryQuery.data ?? selectedRun)}
+                    </pre>
+                  )
+                ) : (
+                  <div className="mt-3 rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                    Non disponible (endpoint resume manquant).
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm font-medium">Resultats</p>
+                {recoRunItemsEndpoint ? (
+                  itemsQuery.isLoading ? (
+                    <div className="mt-3 space-y-2">
+                      <Skeleton className="h-6 w-32" />
+                      <Skeleton className="h-32 w-full" />
+                    </div>
+                  ) : itemsQuery.error ? (
+                    <ErrorState message="Impossible de charger les resultats du run." />
+                  ) : itemHeaders.length === 0 ? (
+                    <EmptyState
+                      title="Aucun resultat"
+                      description="Aucune recommandation rattachee a ce run."
+                    />
+                  ) : (
+                    <DataTable
+                      columns={itemColumns}
+                      data={itemRows}
+                      isLoading={itemsQuery.isLoading}
+                      filterPlaceholder="Rechercher une recommandation..."
+                      emptyMessage="Aucun resultat disponible."
+                    />
+                  )
+                ) : (
+                  <div className="mt-3 rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                    Non disponible (endpoint resultats manquant).
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <EmptyState title="Aucun detail disponible." />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nouveau run</DialogTitle>
+            <DialogDescription>
+              Lance un run de recommandations avec les parametres souhaites.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="run-top-n">Batch size (top N)</Label>
+              <Input
+                id="run-top-n"
+                type="number"
+                min={1}
+                max={20}
+                value={runForm.topN}
+                onChange={(event) =>
+                  setRunForm((prev) => ({
+                    ...prev,
+                    topN: Number(event.target.value) || 5,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="run-segment">Segment (optionnel)</Label>
+              <Input
+                id="run-segment"
+                value={runForm.segment}
+                onChange={(event) =>
+                  setRunForm((prev) => ({
+                    ...prev,
+                    segment: event.target.value,
+                  }))
+                }
+                placeholder="Ex: Champions"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRunDialogOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={() => runMutation.mutate(runForm)}
+              disabled={!runGenerateEndpoint || runMutation.isPending}
+            >
+              {runMutation.isPending ? "Lancement..." : "Lancer le run"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
