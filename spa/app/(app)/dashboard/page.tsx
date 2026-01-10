@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
 import { ErrorState } from "@/components/error-state";
-import { KpiCard } from "@/components/kpi-card";
+import { KpiCard, type KpiCardTone } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -211,6 +212,7 @@ function renderKpiCard(options: {
   label: string;
   value: string;
   helper?: string;
+  tone?: KpiCardTone;
   isLoading: boolean;
   error: unknown;
   errorMessage: string;
@@ -221,7 +223,14 @@ function renderKpiCard(options: {
   if (options.error) {
     return <ErrorState message={options.errorMessage} />;
   }
-  return <KpiCard label={options.label} value={options.value} helper={options.helper} />;
+  return (
+    <KpiCard
+      label={options.label}
+      value={options.value}
+      helper={options.helper}
+      tone={options.tone}
+    />
+  );
 }
 
 function formatStatusLabel(status: string | undefined) {
@@ -279,6 +288,9 @@ export default function DashboardPage() {
   const healthStatusLabel = formatStatusLabel(
     healthStatus !== null ? String(healthStatus) : undefined
   );
+  const isHealthy =
+    healthStatusLabel.toLowerCase() === "ok" ||
+    healthStatusLabel.toLowerCase() === "healthy";
 
   return (
     <div className="space-y-8">
@@ -297,6 +309,7 @@ export default function DashboardPage() {
             value:
               clientsCount !== null ? formatNumber(clientsCount) : "Non disponible",
             helper: "Total clients",
+            tone: "primary",
             isLoading: clientsQuery.isLoading,
             error: clientsQuery.error,
             errorMessage: "Impossible de charger les clients.",
@@ -306,6 +319,7 @@ export default function DashboardPage() {
             value:
               productsCount !== null ? formatNumber(productsCount) : "Non disponible",
             helper: "Total produits",
+            tone: "info",
             isLoading: productsQuery.isLoading,
             error: productsQuery.error,
             errorMessage: "Impossible de charger les produits.",
@@ -314,6 +328,7 @@ export default function DashboardPage() {
             label: "Ventes",
             value: salesTotal !== null ? formatCurrency(salesTotal) : "Non disponible",
             helper: "Volume cumule",
+            tone: "success",
             isLoading: salesQuery.isLoading,
             error: salesQuery.error,
             errorMessage: "Impossible de charger les ventes.",
@@ -325,6 +340,7 @@ export default function DashboardPage() {
                 ? formatNumber(recommendationsCount)
                 : "Non disponible",
             helper: "Total recommandations",
+            tone: "warning",
             isLoading: recommendationsQuery.isLoading,
             error: recommendationsQuery.error,
             errorMessage: "Impossible de charger les recommandations.",
@@ -335,6 +351,7 @@ export default function DashboardPage() {
             helper: latestImport?.statusLabel
               ? `Statut: ${latestImport.statusLabel}`
               : undefined,
+            tone: "info",
             isLoading: importQuery.isLoading,
             error: importQuery.error,
             errorMessage: "Impossible de charger le dernier import.",
@@ -343,6 +360,7 @@ export default function DashboardPage() {
             label: "Dernier run",
             value: latestRun?.dateLabel ?? "Non disponible",
             helper: latestRun?.statusLabel ? `Statut: ${latestRun.statusLabel}` : undefined,
+            tone: "neutral",
             isLoading: runQuery.isLoading,
             error: runQuery.error,
             errorMessage: "Impossible de charger le dernier run.",
@@ -376,7 +394,15 @@ export default function DashboardPage() {
                       /api/health
                     </div>
                   </div>
-                  <Badge variant="outline" className="capitalize">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "capitalize",
+                      isHealthy
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-muted/40 bg-muted/30 text-muted-foreground"
+                    )}
+                  >
                     {healthStatusLabel}
                   </Badge>
                 </div>
