@@ -271,29 +271,36 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 
 export default function RecommendationsPage() {
   const queryClient = useQueryClient();
+  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
+  const recommendationsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recommendations)
+      ? endpointsRecord.recommendations
+      : null;
+  const exportRecord =
+    endpointsRecord && isRecord(endpointsRecord.export)
+      ? endpointsRecord.export
+      : null;
+  const recoRunsRecord =
+    endpointsRecord && isRecord(endpointsRecord.recoRuns)
+      ? endpointsRecord.recoRuns
+      : null;
   const recommendationsListEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recommendations &&
-      (endpoints as Record<string, unknown>).recommendations.list
+    recommendationsRecord?.list
   );
   const recommendationsGenerateEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recommendations &&
-      (endpoints as Record<string, unknown>).recommendations.generate
+    recommendationsRecord?.generate
   );
   const recommendationsApproveEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recommendations &&
-      (endpoints as Record<string, unknown>).recommendations.approve
+    recommendationsRecord?.approve
   );
   const exportRecommendationsEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export.recommendations
+    exportRecord?.recommendations
   );
   const exportRunsEndpoint = resolveEndpointFnWithFormat(
-    (endpoints as Record<string, unknown>)?.export &&
-      (endpoints as Record<string, unknown>).export.runs
+    exportRecord?.runs
   );
   const recoRunsListEndpoint = resolveStringEndpoint(
-    (endpoints as Record<string, unknown>)?.recoRuns &&
-      (endpoints as Record<string, unknown>).recoRuns.list
+    recoRunsRecord?.list
   );
 
   const [isGenerateAvailable, setGenerateAvailable] = useState(
