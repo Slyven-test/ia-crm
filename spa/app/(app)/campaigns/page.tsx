@@ -77,6 +77,11 @@ type SegmentOption = {
   count?: number;
 };
 
+type TemplateOption = {
+  value: string;
+  label: string;
+};
+
 const defaultFormState: CampaignFormState = {
   name: "",
   subject: "",
@@ -87,6 +92,14 @@ const defaultFormState: CampaignFormState = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function resolveStringEndpoint(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function resolveEndpointFn(value: unknown): ((id: string | number) => string) | null {
+  return typeof value === "function" ? (value as (id: string | number) => string) : null;
 }
 
 function normalizeCampaigns(value: unknown): CampaignRow[] {
@@ -131,6 +144,13 @@ function getDateValue(record: CampaignRow, keys: string[]) {
       typeof value === "number" ||
       value instanceof Date
   );
+}
+
+function getCampaignId(record: CampaignRow): string | number | null {
+  const candidate = record.id ?? record.campaign_id;
+  if (typeof candidate === "string" && candidate.trim()) return candidate;
+  if (typeof candidate === "number") return candidate;
+  return null;
 }
 
 function formatDateValue(value: string | number | Date | null) {
@@ -207,6 +227,37 @@ function normalizeSegmentOptions(value: unknown): SegmentOption[] {
   return [];
 }
 
+function normalizeTemplateOptions(value: unknown): TemplateOption[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string" || typeof item === "number") {
+          const label = String(item);
+          return { value: label, label };
+        }
+        if (isRecord(item)) {
+          const id = getStringValue(item, ["id", "template_id", "templateId"]);
+          const name = getStringValue(item, ["name", "label", "title"]);
+          if (id !== null) {
+            const label = name ? String(name) : String(id);
+            return { value: String(id), label };
+          }
+        }
+        return null;
+      })
+      .filter((item): item is TemplateOption => Boolean(item));
+  }
+
+  if (isRecord(value)) {
+    const items = value.items ?? value.results ?? value.data;
+    if (Array.isArray(items)) {
+      return normalizeTemplateOptions(items);
+    }
+  }
+
+  return [];
+}
+
 function stringifyJson(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -224,23 +275,71 @@ export default function CampaignsPage() {
     useState<CampaignPreviewPayload | null>(null);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | number | null>(null);
+
+  const campaignsEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.campaigns &&
+      (endpoints as Record<string, unknown>).campaigns.create
+  );
+  const previewEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.campaigns &&
+      (endpoints as Record<string, unknown>).campaigns.preview
+  );
+  const sendByIdEndpoint = resolveEndpointFn(
+    (endpoints as Record<string, unknown>)?.campaigns &&
+      (endpoints as Record<string, unknown>).campaigns.sendById
+  );
+  const templatesEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.campaigns &&
+      (endpoints as Record<string, unknown>).campaigns.templates
+  );
+  const segmentsEndpoint = resolveStringEndpoint(
+    (endpoints as Record<string, unknown>)?.rfm &&
+      (endpoints as Record<string, unknown>).rfm.distribution
+  );
+
+  const templatesAvailable = Boolean(templatesEndpoint);
+  const segmentsAvailable = Boolean(segmentsEndpoint);
+  const campaignsAvailable = Boolean(campaignsEndpoint);
+  const previewAvailable = Boolean(previewEndpoint);
 
   const campaignsQuery = useQuery({
-    queryKey: ["campaigns"],
-    queryFn: () => apiRequest<unknown>(endpoints.campaigns.create),
+    queryKey: ["campaigns", campaignsEndpoint ?? "none"],
+    queryFn: () => {
+      if (!campaignsEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(campaignsEndpoint);
+    },
+    enabled: campaignsAvailable,
   });
 
   const segmentsQuery = useQuery({
-    queryKey: ["rfm", "distribution"],
-    queryFn: () => apiRequest<unknown>(endpoints.rfm.distribution),
+    queryKey: ["rfm", "distribution", segmentsEndpoint ?? "none"],
+    queryFn: () => {
+      if (!segmentsEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(segmentsEndpoint);
+    },
+    enabled: segmentsAvailable,
+  });
+
+  const templatesQuery = useQuery({
+    queryKey: ["campaigns", "templates", templatesEndpoint ?? "none"],
+    queryFn: () => {
+      if (!templatesEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(templatesEndpoint);
+    },
+    enabled: templatesAvailable,
   });
 
   const createMutation = useMutation({
-    mutationFn: (payload: CampaignCreatePayload) =>
-      apiRequest<CampaignRow>(endpoints.campaigns.create, {
+    mutationFn: (payload: CampaignCreatePayload) => {
+      if (!campaignsEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest<CampaignRow>(campaignsEndpoint, {
         method: "POST",
         body: payload,
-      }),
+      });
+    },
     onSuccess: () => {
       toast.success("Campagne creee.");
       campaignsQuery.refetch();
@@ -257,11 +356,15 @@ export default function CampaignsPage() {
   });
 
   const previewMutation = useMutation({
-    mutationFn: (payload: CampaignPreviewPayload) =>
-      apiRequest<CampaignPreviewResponse>(endpoints.campaigns.preview, {
+    mutationFn: (payload: CampaignPreviewPayload) => {
+      if (!previewEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest<CampaignPreviewResponse>(previewEndpoint, {
         method: "POST",
         body: payload,
-      }),
+      });
+    },
     onSuccess: (data, payload) => {
       setPreviewResponse(data);
       setPreviewPayload(payload);
@@ -276,8 +379,34 @@ export default function CampaignsPage() {
         setPreviewPayload(null);
         return;
       }
-      setPreviewUnavailable(false);
+      setPreviewUnavailable(!previewEndpoint);
       toast.error(getErrorMessage(error, "Impossible de previsualiser."));
+    },
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: (campaignId: string | number) => {
+      if (!sendByIdEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest(sendByIdEndpoint(campaignId), { method: "POST" });
+    },
+    onMutate: (campaignId) => {
+      setSendingId(campaignId);
+    },
+    onSuccess: () => {
+      toast.success("Envoi de campagne lance.");
+      campaignsQuery.refetch();
+    },
+    onError: (error) => {
+      if (isUnavailableError(error)) {
+        toast.error("Envoi non disponible.");
+        return;
+      }
+      toast.error(getErrorMessage(error, "Impossible d'envoyer la campagne."));
+    },
+    onSettled: () => {
+      setSendingId(null);
     },
   });
 
@@ -288,6 +417,10 @@ export default function CampaignsPage() {
   const segmentOptions = useMemo(
     () => normalizeSegmentOptions(segmentsQuery.data),
     [segmentsQuery.data]
+  );
+  const templateOptions = useMemo(
+    () => normalizeTemplateOptions(templatesQuery.data),
+    [templatesQuery.data]
   );
 
   const columns = useMemo<ColumnDef<CampaignRow>[]>(
@@ -328,12 +461,57 @@ export default function CampaignsPage() {
             getDateValue(row.original, ["created_at", "createdAt"])
           ),
       },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const campaignId = getCampaignId(row.original);
+          const status = getStringValue(row.original, ["status", "state"]);
+          const normalizedStatus = status ? String(status).toLowerCase() : "";
+          const isSent = ["sent", "success", "done", "completed"].includes(
+            normalizedStatus
+          );
+          const isPending =
+            sendMutation.isPending && campaignId !== null && campaignId === sendingId;
+
+          if (!sendByIdEndpoint) {
+            return (
+              <Button size="sm" variant="outline" disabled>
+                Non disponible
+              </Button>
+            );
+          }
+
+          if (isSent) {
+            return (
+              <Button size="sm" variant="outline" disabled>
+                Deja envoyee
+              </Button>
+            );
+          }
+
+          return (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (campaignId !== null) {
+                  sendMutation.mutate(campaignId);
+                }
+              }}
+              disabled={campaignId === null || isPending}
+            >
+              {isPending ? "Envoi..." : "Envoyer"}
+            </Button>
+          );
+        },
+      },
     ],
-    []
+    [sendByIdEndpoint, sendMutation, sendingId]
   );
 
-  const canCreate = form.name.trim().length > 0;
-  const canPreview = form.templateId.trim().length > 0;
+  const canCreate = campaignsAvailable && form.name.trim().length > 0;
+  const canPreview = previewAvailable && form.templateId.trim().length > 0;
 
   const listErrorMessage = campaignsQuery.isError
     ? getErrorMessage(
@@ -357,8 +535,18 @@ export default function CampaignsPage() {
         "Impossible de charger les audiences."
       )
     : null;
+  const templatesErrorMessage = templatesQuery.isError
+    ? getErrorMessage(
+        templatesQuery.error,
+        "Impossible de charger les templates."
+      )
+    : null;
   const segmentsUnavailable =
-    segmentsQuery.isError && isUnavailableError(segmentsQuery.error);
+    !segmentsAvailable ||
+    (segmentsQuery.isError && isUnavailableError(segmentsQuery.error));
+  const templatesUnavailable =
+    !templatesAvailable ||
+    (templatesQuery.isError && isUnavailableError(templatesQuery.error));
 
   const handleDialogChange = (open: boolean) => {
     setDialogOpen(open);
@@ -414,8 +602,11 @@ export default function CampaignsPage() {
         title="Campagnes"
         description="Lister, creer et previsualiser vos campagnes email."
         actions={
-          <Button onClick={() => setDialogOpen(true)}>
-            Nouvelle campagne
+          <Button
+            onClick={() => setDialogOpen(true)}
+            disabled={!campaignsAvailable}
+          >
+            {campaignsAvailable ? "Nouvelle campagne" : "Non disponible"}
           </Button>
         }
       />
@@ -432,14 +623,19 @@ export default function CampaignsPage() {
             <Button
               variant="outline"
               onClick={() => campaignsQuery.refetch()}
-              disabled={campaignsQuery.isFetching}
+              disabled={!campaignsAvailable || campaignsQuery.isFetching}
             >
               {campaignsQuery.isFetching ? "Chargement..." : "Rafraichir"}
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          {campaignsQuery.isLoading ? (
+          {!campaignsAvailable ? (
+            <EmptyState
+              title="Campagnes indisponibles."
+              description="Endpoint campagnes absent."
+            />
+          ) : campaignsQuery.isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-6 w-48" />
               <Skeleton className="h-40 w-full" />
@@ -486,20 +682,46 @@ export default function CampaignsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="campaign-template">Template Brevo</Label>
-                <Input
-                  id="campaign-template"
-                  value={form.templateId}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      templateId: event.target.value,
-                    }))
-                  }
-                  placeholder="Ex: 42"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Requis pour la previsualisation/dry-run.
-                </p>
+                {templatesQuery.isLoading ? (
+                  <Skeleton className="h-9 w-full" />
+                ) : templatesUnavailable ? (
+                  <div className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground">
+                    Non disponible (endpoint templates absent).
+                  </div>
+                ) : templatesQuery.isError ? (
+                  <ErrorState message={templatesErrorMessage ?? ""} />
+                ) : (
+                  <>
+                    <Input
+                      id="campaign-template"
+                      value={form.templateId}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          templateId: event.target.value,
+                        }))
+                      }
+                      list={
+                        templateOptions.length
+                          ? "campaign-template-options"
+                          : undefined
+                      }
+                      placeholder="Ex: 42"
+                    />
+                    {templateOptions.length ? (
+                      <datalist id="campaign-template-options">
+                        {templateOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </datalist>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Requis pour la previsualisation/dry-run.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="campaign-subject">Sujet</Label>
@@ -591,7 +813,11 @@ export default function CampaignsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {previewMutation.isPending ? (
+                {!previewAvailable ? (
+                  <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                    Non disponible (endpoint previsualisation absent).
+                  </div>
+                ) : previewMutation.isPending ? (
                   <div className="space-y-3">
                     <Skeleton className="h-6 w-40" />
                     <Skeleton className="h-28 w-full" />
