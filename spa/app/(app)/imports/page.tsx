@@ -94,19 +94,33 @@ const defaultImportConfigs: ImportCardConfig[] = [
     key: "clients",
     title: "Clients",
     description: "Importer un fichier CSV de contacts ou comptes.",
-    invalidateKeys: [["customers"], ["clients", "count"], ["audit", "latest"]],
+    invalidateKeys: [
+      ["customers", "list"],
+      ["clients", "count"],
+      ["audit", "latest"],
+      ["runs", "latest"],
+    ],
   },
   {
     key: "products",
     title: "Produits",
     description: "Importer le catalogue produits et ses attributs.",
-    invalidateKeys: [["products"], ["products", "count"], ["audit", "latest"]],
+    invalidateKeys: [
+      ["products"],
+      ["products", "count"],
+      ["audit", "latest"],
+      ["runs", "latest"],
+    ],
   },
   {
     key: "sales",
     title: "Ventes",
     description: "Importer l'historique des ventes/transactions.",
-    invalidateKeys: [["analytics", "sales-trend"], ["sales"], ["audit", "latest"]],
+    invalidateKeys: [
+      ["analytics", "sales-trend"],
+      ["audit", "latest"],
+      ["runs", "latest"],
+    ],
   },
 ];
 
@@ -317,7 +331,7 @@ function ImportCard({
       );
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 404) {
+      if (error instanceof ApiError && [404, 501].includes(error.status)) {
         setUploadUnavailable(true);
       }
       const message =
