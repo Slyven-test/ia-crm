@@ -1,7 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -57,6 +57,8 @@ const defaultRunForm: RunFormState = {
   segment: "",
 };
 
+const UNAVAILABLE_STATUSES = new Set([404, 501]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -101,6 +103,25 @@ function resolveEndpointFn(value: unknown): EndpointWithId | null {
 
 function resolveEndpointFnWithFormat(value: unknown): EndpointWithRunId | null {
   return typeof value === "function" ? (value as EndpointWithRunId) : null;
+}
+
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status);
+}
+
+function formatApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 0;
+    const message = error.message || fallback;
+    if (UNAVAILABLE_STATUSES.has(status)) {
+      return `HTTP ${status} - Non disponible`;
+    }
+    return `HTTP ${status} - ${message}`;
+  }
+  if (error instanceof Error) {
+    return `HTTP 0 - ${error.message}`;
+  }
+  return `HTTP 0 - ${fallback}`;
 }
 
 function getRunId(run: RunRow): string | number | null {
@@ -339,6 +360,7 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function RunsPage() {
+  const queryClient = useQueryClient();
   const [selectedRun, setSelectedRun] = useState<RunRow | null>(null);
   const [activeDownloadRun, setActiveDownloadRun] = useState<
     string | number | null
@@ -346,19 +368,16 @@ export default function RunsPage() {
   const [runDialogOpen, setRunDialogOpen] = useState(false);
   const [runForm, setRunForm] = useState<RunFormState>(defaultRunForm);
 
-  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
-  const recoRunsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recoRuns)
-      ? endpointsRecord.recoRuns
-      : null;
-  const recommendationsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recommendations)
-      ? endpointsRecord.recommendations
-      : null;
-  const exportRecord =
-    endpointsRecord && isRecord(endpointsRecord.export)
-      ? endpointsRecord.export
-      : null;
+  const endpointsRecord = endpoints as unknown as Record<string, unknown>;
+  const recoRunsRecord = isRecord(endpointsRecord.recoRuns)
+    ? endpointsRecord.recoRuns
+    : null;
+  const recommendationsRecord = isRecord(endpointsRecord.recommendations)
+    ? endpointsRecord.recommendations
+    : null;
+  const exportRecord = isRecord(endpointsRecord.export)
+    ? endpointsRecord.export
+    : null;
 
   const recoRunsListEndpoint = resolveStringEndpoint(
     recoRunsRecord?.list
@@ -419,11 +438,14 @@ export default function RunsPage() {
       const label = result?.format === "json" ? "JSON" : "CSV";
       toast.success(`Export ${label} du run ${variables.runId} telecharge.`);
     },
-    onError: (_, variables) => {
+    onError: (error, variables) => {
       toast.error(
-        variables?.runId
-          ? `Impossible d'exporter le run ${variables.runId}.`
-          : "Impossible de telecharger le run."
+        formatApiErrorMessage(
+          error,
+          variables?.runId
+            ? `Impossible d'exporter le run ${variables.runId}.`
+            : "Impossible de telecharger le run."
+        )
       );
     },
     onSettled: () => {
@@ -444,18 +466,33 @@ export default function RunsPage() {
       const endpoint = `${runGenerateEndpoint}?${params.toString()}`;
       return apiRequest(endpoint, { method: "POST" });
     },
-    onSuccess: () => {
-      toast.success("Run de recommandations lance.");
-      query.refetch();
+    onSuccess: async (payload) => {
+      const summary =
+        payload && isRecord(payload)
+          ? [payload.run_id, payload.id].find(
+              (value) => typeof value === "string" || typeof value === "number"
+            )
+          : null;
+      toast.success(
+        summary
+          ? `Run de recommandations lance (run ${summary}).`
+          : "Run de recommandations lance."
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recommendations"] }),
+        queryClient.invalidateQueries({ queryKey: ["reco-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["runs", "latest"] }),
+        queryClient.invalidateQueries({ queryKey: ["audit", "latest"] }),
+      ]);
       setRunDialogOpen(false);
       setRunForm(defaultRunForm);
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 404) {
-        toast.error("Run non disponible.");
+      if (error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status)) {
+        toast.error(`HTTP ${error.status} - Non disponible`);
         return;
       }
-      toast.error("Impossible de lancer le run.");
+      toast.error(formatApiErrorMessage(error, "Impossible de lancer le run."));
     },
   });
 
@@ -732,11 +769,10 @@ export default function RunsPage() {
   const hasRows = rows.length > 0;
   const isRefreshing = query.isFetching && !query.isLoading;
   const listUnavailable =
-    !recoRunsListEndpoint ||
-    (query.error instanceof ApiError && query.error.status === 404);
+    !recoRunsListEndpoint || isUnavailableError(query.error);
   const errorMessage =
-    query.error instanceof ApiError
-      ? query.error.message
+    query.error
+      ? formatApiErrorMessage(query.error, "Impossible de charger les runs.")
       : "Impossible de charger les runs.";
 
   return (
@@ -834,7 +870,21 @@ export default function RunsPage() {
                       <Skeleton className="h-32 w-full" />
                     </div>
                   ) : summaryQuery.error ? (
-                    <ErrorState message="Details complets indisponibles, affichage du run local." />
+                    isUnavailableError(summaryQuery.error) ? (
+                      <div className="mt-3 rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {formatApiErrorMessage(
+                          summaryQuery.error,
+                          "Details indisponibles."
+                        )}
+                      </div>
+                    ) : (
+                      <ErrorState
+                        message={formatApiErrorMessage(
+                          summaryQuery.error,
+                          "Details complets indisponibles, affichage du run local."
+                        )}
+                      />
+                    )
                   ) : (
                     <pre className="mt-3 max-h-[50vh] overflow-auto rounded-xl border bg-muted/40 p-4 text-xs">
                       {formatJson(summaryQuery.data ?? selectedRun)}
@@ -856,7 +906,21 @@ export default function RunsPage() {
                       <Skeleton className="h-32 w-full" />
                     </div>
                   ) : itemsQuery.error ? (
-                    <ErrorState message="Impossible de charger les resultats du run." />
+                    isUnavailableError(itemsQuery.error) ? (
+                      <div className="mt-3 rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {formatApiErrorMessage(
+                          itemsQuery.error,
+                          "Resultats indisponibles."
+                        )}
+                      </div>
+                    ) : (
+                      <ErrorState
+                        message={formatApiErrorMessage(
+                          itemsQuery.error,
+                          "Impossible de charger les resultats du run."
+                        )}
+                      />
+                    )
                   ) : itemHeaders.length === 0 ? (
                     <EmptyState
                       title="Aucun resultat"

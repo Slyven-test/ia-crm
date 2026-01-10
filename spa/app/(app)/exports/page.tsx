@@ -34,6 +34,8 @@ type RunExportPayload = {
   format: "csv" | "json";
 };
 
+const UNAVAILABLE_STATUSES = new Set([404, 501]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -44,6 +46,25 @@ function resolveStringEndpoint(value: unknown): string | null {
 
 function resolveEndpointFnWithFormat(value: unknown): EndpointWithRunId | null {
   return typeof value === "function" ? (value as EndpointWithRunId) : null;
+}
+
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status);
+}
+
+function formatApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 0;
+    const message = error.message || fallback;
+    if (UNAVAILABLE_STATUSES.has(status)) {
+      return `HTTP ${status} - Non disponible`;
+    }
+    return `HTTP ${status} - ${message}`;
+  }
+  if (error instanceof Error) {
+    return `HTTP 0 - ${error.message}`;
+  }
+  return `HTTP 0 - ${fallback}`;
 }
 
 function normalizeRuns(value: unknown): RunRow[] {
@@ -82,19 +103,16 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 }
 
 export default function ExportsPage() {
-  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
-  const exportRecord =
-    endpointsRecord && isRecord(endpointsRecord.export)
-      ? endpointsRecord.export
-      : null;
-  const recommendationsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recommendations)
-      ? endpointsRecord.recommendations
-      : null;
-  const recoRunsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recoRuns)
-      ? endpointsRecord.recoRuns
-      : null;
+  const endpointsRecord = endpoints as unknown as Record<string, unknown>;
+  const exportRecord = isRecord(endpointsRecord.export)
+    ? endpointsRecord.export
+    : null;
+  const recommendationsRecord = isRecord(endpointsRecord.recommendations)
+    ? endpointsRecord.recommendations
+    : null;
+  const recoRunsRecord = isRecord(endpointsRecord.recoRuns)
+    ? endpointsRecord.recoRuns
+    : null;
   const exportRecommendationsEndpoint = resolveStringEndpoint(
     exportRecord?.recommendations
   );
@@ -135,8 +153,13 @@ export default function ExportsPage() {
     onSuccess: () => {
       toast.success("Export CSV des recommandations telecharge.");
     },
-    onError: () => {
-      toast.error("Impossible de telecharger le CSV des recommandations.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible de telecharger le CSV des recommandations."
+        )
+      );
     },
   });
 
@@ -158,8 +181,13 @@ export default function ExportsPage() {
     onSuccess: () => {
       toast.success("Export JSON des recommandations telecharge.");
     },
-    onError: () => {
-      toast.error("Impossible de telecharger le JSON des recommandations.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible de telecharger le JSON des recommandations."
+        )
+      );
     },
   });
 
@@ -189,8 +217,10 @@ export default function ExportsPage() {
       const label = variables.format === "json" ? "JSON" : "CSV";
       toast.success(`Export ${label} du run ${variables.runId} telecharge.`);
     },
-    onError: () => {
-      toast.error("Impossible d'exporter ce run.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(error, "Impossible d'exporter ce run.")
+      );
     },
   });
 
@@ -204,6 +234,7 @@ export default function ExportsPage() {
   }, [runsQuery.data]);
 
   const listUnavailable = !exportRecommendationsEndpoint && !recommendationsListEndpoint;
+  const runListUnavailable = isUnavailableError(runsQuery.error);
 
   return (
     <div className="space-y-6">
@@ -291,6 +322,18 @@ export default function ExportsPage() {
                     <p className="text-xs text-muted-foreground">
                       Chargement des runs disponibles...
                     </p>
+                  ) : runsQuery.error ? (
+                    <p className="text-xs text-muted-foreground">
+                      {runListUnavailable
+                        ? formatApiErrorMessage(
+                            runsQuery.error,
+                            "Liste des runs indisponible."
+                          )
+                        : formatApiErrorMessage(
+                            runsQuery.error,
+                            "Impossible de charger la liste des runs."
+                          )}
+                    </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
                       {runOptions.length
@@ -336,8 +379,13 @@ export default function ExportsPage() {
               </Button>
             </div>
           )}
-          {runsQuery.isError ? (
-            <ErrorState message="Impossible de charger la liste des runs." />
+          {runsQuery.isError && !runListUnavailable ? (
+            <ErrorState
+              message={formatApiErrorMessage(
+                runsQuery.error,
+                "Impossible de charger la liste des runs."
+              )}
+            />
           ) : runsQuery.isLoading && recoRunsListEndpoint ? (
             <div className="space-y-2">
               <Skeleton className="h-6 w-32" />

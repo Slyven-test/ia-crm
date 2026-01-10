@@ -48,6 +48,7 @@ type RunExportPayload = {
 };
 
 const APPROVABLE_STATUSES = new Set(["pending", "draft", "proposed"]);
+const UNAVAILABLE_STATUSES = new Set([404, 501]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -59,6 +60,25 @@ function resolveStringEndpoint(value: unknown): string | null {
 
 function resolveEndpointFnWithFormat(value: unknown): EndpointWithRunId | null {
   return typeof value === "function" ? (value as EndpointWithRunId) : null;
+}
+
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status);
+}
+
+function formatApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 0;
+    const message = error.message || fallback;
+    if (UNAVAILABLE_STATUSES.has(status)) {
+      return `HTTP ${status} - Non disponible`;
+    }
+    return `HTTP ${status} - ${message}`;
+  }
+  if (error instanceof Error) {
+    return `HTTP 0 - ${error.message}`;
+  }
+  return `HTTP 0 - ${fallback}`;
 }
 
 function normalizeRows(value: unknown): RecommendationRow[] {
@@ -271,19 +291,16 @@ function triggerDownload(payload: string, filename: string, mimeType: string) {
 
 export default function RecommendationsPage() {
   const queryClient = useQueryClient();
-  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
-  const recommendationsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recommendations)
-      ? endpointsRecord.recommendations
-      : null;
-  const exportRecord =
-    endpointsRecord && isRecord(endpointsRecord.export)
-      ? endpointsRecord.export
-      : null;
-  const recoRunsRecord =
-    endpointsRecord && isRecord(endpointsRecord.recoRuns)
-      ? endpointsRecord.recoRuns
-      : null;
+  const endpointsRecord = endpoints as unknown as Record<string, unknown>;
+  const recommendationsRecord = isRecord(endpointsRecord.recommendations)
+    ? endpointsRecord.recommendations
+    : null;
+  const exportRecord = isRecord(endpointsRecord.export)
+    ? endpointsRecord.export
+    : null;
+  const recoRunsRecord = isRecord(endpointsRecord.recoRuns)
+    ? endpointsRecord.recoRuns
+    : null;
   const recommendationsListEndpoint = resolveStringEndpoint(
     recommendationsRecord?.list
   );
@@ -341,9 +358,13 @@ export default function RecommendationsPage() {
   const hasData = (query.data?.rows ?? []).length > 0;
   const hasColumns = (query.data?.headers ?? []).length > 0;
   const isRefreshing = query.isFetching && !query.isLoading;
+  const isRecommendationsUnavailable = isUnavailableError(query.error);
   const queryErrorMessage =
-    query.error instanceof ApiError
-      ? query.error.message
+    query.error
+      ? formatApiErrorMessage(
+          query.error,
+          "Impossible de charger les recommandations."
+        )
       : "Impossible de charger les recommandations.";
 
   const csvDownload = useMutation({
@@ -362,8 +383,13 @@ export default function RecommendationsPage() {
     onSuccess: () => {
       toast.success("Export CSV des recommandations telecharge.");
     },
-    onError: () => {
-      toast.error("Impossible de telecharger le CSV des recommandations.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible de telecharger le CSV des recommandations."
+        )
+      );
     },
   });
 
@@ -388,8 +414,13 @@ export default function RecommendationsPage() {
     onSuccess: () => {
       toast.success("Export JSON des recommandations telecharge.");
     },
-    onError: () => {
-      toast.error("Impossible de telecharger le JSON des recommandations.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible de telecharger le JSON des recommandations."
+        )
+      );
     },
   });
 
@@ -400,24 +431,37 @@ export default function RecommendationsPage() {
       }
       return apiRequest(recommendationsGenerateEndpoint, { method: "POST" });
     },
-    onSuccess: async () => {
-      toast.success("Generation des recommandations lancee.");
+    onSuccess: async (payload) => {
+      const summary =
+        payload && isRecord(payload)
+          ? [payload.run_id, payload.id].find(
+              (value) => typeof value === "string" || typeof value === "number"
+            )
+          : null;
+      toast.success(
+        summary
+          ? `Generation des recommandations lancee (run ${summary}).`
+          : "Generation des recommandations lancee."
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["recommendations"] }),
         queryClient.invalidateQueries({ queryKey: ["reco-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["runs", "latest"] }),
+        queryClient.invalidateQueries({ queryKey: ["audit", "latest"] }),
       ]);
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 404) {
+      if (error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status)) {
         setGenerateAvailable(false);
-        toast.error("Generation non disponible.");
+        toast.error(`HTTP ${error.status} - Non disponible`);
         return;
       }
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Impossible de generer les recommandations.";
-      toast.error(message);
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible de generer les recommandations."
+        )
+      );
     },
   });
 
@@ -436,19 +480,25 @@ export default function RecommendationsPage() {
     },
     onSuccess: async () => {
       toast.success("Recommandation approuvee.");
-      await queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recommendations"] }),
+        queryClient.invalidateQueries({ queryKey: ["reco-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["runs", "latest"] }),
+        queryClient.invalidateQueries({ queryKey: ["audit", "latest"] }),
+      ]);
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 404) {
+      if (error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status)) {
         setApproveAvailable(false);
-        toast.error("Action non disponible.");
+        toast.error(`HTTP ${error.status} - Non disponible`);
         return;
       }
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Impossible d'approuver la recommandation.";
-      toast.error(message);
+      toast.error(
+        formatApiErrorMessage(
+          error,
+          "Impossible d'approuver la recommandation."
+        )
+      );
     },
     onSettled: () => {
       setApprovingId(null);
@@ -481,8 +531,10 @@ export default function RecommendationsPage() {
       const label = variables.format === "json" ? "JSON" : "CSV";
       toast.success(`Export ${label} du run ${variables.runId} telecharge.`);
     },
-    onError: () => {
-      toast.error("Impossible d'exporter ce run.");
+    onError: (error) => {
+      toast.error(
+        formatApiErrorMessage(error, "Impossible d'exporter ce run.")
+      );
     },
   });
 
@@ -628,7 +680,7 @@ export default function RecommendationsPage() {
           </CardAction>
         </CardHeader>
         <CardContent>
-          {!recosAvailable ? (
+          {!recosAvailable || isRecommendationsUnavailable ? (
             <EmptyState
               title="Recommandations indisponibles."
               description="Aucun endpoint ne permet de charger les recommandations."
@@ -718,6 +770,18 @@ export default function RecommendationsPage() {
                   runsQuery.isLoading ? (
                     <p className="text-xs text-muted-foreground">
                       Chargement des runs disponibles...
+                    </p>
+                  ) : runsQuery.error ? (
+                    <p className="text-xs text-muted-foreground">
+                      {isUnavailableError(runsQuery.error)
+                        ? formatApiErrorMessage(
+                            runsQuery.error,
+                            "Liste des runs indisponible."
+                          )
+                        : formatApiErrorMessage(
+                            runsQuery.error,
+                            "Impossible de charger la liste des runs."
+                          )}
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
