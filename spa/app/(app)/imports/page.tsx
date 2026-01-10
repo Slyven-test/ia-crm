@@ -281,6 +281,9 @@ function getSourceValue(run: ImportRun) {
   return value ? String(value) : null;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
 function getMessageValue(run: ImportRun) {
   const value = pickValue(
     run,
@@ -288,7 +291,7 @@ function getMessageValue(run: ImportRun) {
     (candidate): candidate is string | number | Record<string, unknown> =>
       typeof candidate === "string" ||
       typeof candidate === "number" ||
-      (candidate && typeof candidate === "object")
+      isRecord(candidate)
   );
   if (typeof value === "string" || typeof value === "number") {
     return String(value);
