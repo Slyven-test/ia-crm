@@ -25,12 +25,15 @@ import { formatDate, formatNumber } from "@/lib/format";
 
 type ImportTargetKey = "clients" | "products" | "sales";
 
+type UploadMode = "multipart" | "json";
+
 type ImportEndpointInfo = {
   uploadEndpoint: string | null;
   runEndpoint: string | null;
   validateEndpoint: string | null;
   listEndpoint: string | null;
   fileFieldName: string;
+  uploadType: UploadMode;
 };
 
 type ImportSummary = {
@@ -38,6 +41,18 @@ type ImportSummary = {
   errors: string[];
   raw: string | null;
 };
+
+type ImportPayload =
+  | {
+      mode: "multipart";
+      file: File;
+      metadata: Record<string, unknown>;
+    }
+  | {
+      mode: "json";
+      body: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+    };
 
 type ImportCardConfig = {
   key: ImportTargetKey;
@@ -88,6 +103,7 @@ const fileFieldCandidates = [
   "fileKey",
   "file_key",
 ];
+const etlFallbackEndpoint = "/etl/ingest";
 
 const defaultImportConfigs: ImportCardConfig[] = [
   {
@@ -117,7 +133,10 @@ const defaultImportConfigs: ImportCardConfig[] = [
     title: "Ventes",
     description: "Importer l'historique des ventes/transactions.",
     invalidateKeys: [
+      ["analytics", "overview"],
+      ["analytics", "outcomes"],
       ["analytics", "sales-trend"],
+      ["sales"],
       ["audit", "latest"],
       ["runs", "latest"],
     ],
@@ -175,26 +194,35 @@ function resolveString(
 }
 
 function resolveImportEndpoints(target: ImportTargetKey): ImportEndpointInfo {
-  const endpointsRecord = isRecord(endpoints) ? endpoints : null;
-  const importsRoot =
-    endpointsRecord && isRecord(endpointsRecord.imports)
-      ? endpointsRecord.imports
-      : null;
-  const etlRoot =
-    endpointsRecord && isRecord(endpointsRecord.etl)
-      ? endpointsRecord.etl
-      : null;
+  const endpointsRecord = endpoints as unknown as Record<string, unknown>;
+  const importsRoot = isRecord(endpointsRecord.imports)
+    ? endpointsRecord.imports
+    : null;
+  const etlRoot = isRecord(endpointsRecord.etl)
+    ? endpointsRecord.etl
+    : null;
   const targetRoot =
     importsRoot && isRecord(importsRoot[target]) ? importsRoot[target] : null;
 
   const sources = [targetRoot, importsRoot, etlRoot, endpointsRecord];
+  const etlIngest =
+    etlRoot && typeof etlRoot.ingest === "string"
+      ? etlRoot.ingest
+      : null;
+
+  const resolvedUpload = resolveEndpoint(sources, uploadEndpointCandidates);
+  const uploadEndpoint =
+    resolvedUpload ?? etlIngest ?? etlFallbackEndpoint ?? null;
+  const uploadType: UploadMode =
+    uploadEndpoint && uploadEndpoint.includes("/etl/ingest") ? "json" : "multipart";
 
   return {
-    uploadEndpoint: resolveEndpoint(sources, uploadEndpointCandidates),
+    uploadEndpoint,
     runEndpoint: resolveEndpoint(sources, runEndpointCandidates),
     validateEndpoint: resolveEndpoint(sources, validateEndpointCandidates),
     listEndpoint: resolveEndpoint(sources, listEndpointCandidates),
     fileFieldName: resolveString(sources, fileFieldCandidates, "file"),
+    uploadType,
   };
 }
 
@@ -280,6 +308,24 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[index]}`;
 }
 
+function formatApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const base = `HTTP ${error.status}`;
+    if (error.status === 404 || error.status === 501) {
+      return `${base} - Non disponible`;
+    }
+    return error.message ? `${base} - ${error.message}` : base;
+  }
+  if (error instanceof Error) return `HTTP 0 - ${error.message}`;
+  return "HTTP 0 - Erreur inconnue.";
+}
+
+function summarizeForToast(summary: ImportSummary): string | null {
+  if (!summary.summary.length) return null;
+  const highlights = summary.summary.slice(0, 3);
+  return highlights.map((item) => `${item.label}: ${item.value}`).join(", ");
+}
+
 function ImportCard({
   config,
   endpointInfo,
@@ -293,36 +339,58 @@ function ImportCard({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState<unknown>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [lastMetadata, setLastMetadata] = useState<Record<string, unknown> | null>(
+    null
+  );
   const [uploadUnavailable, setUploadUnavailable] = useState<boolean>(
     endpointInfo.uploadEndpoint === null
   );
+  const [tenantInput, setTenantInput] = useState<string>("");
+  const [isolateSchema, setIsolateSchema] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const responseSummary = useMemo(
     () => extractSummary(lastResponse),
     [lastResponse]
   );
+  const parsedTenants = useMemo(() => {
+    return tenantInput
+      .split(",")
+      .map((tenant) => tenant.trim())
+      .filter(Boolean);
+  }, [tenantInput]);
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (payload: ImportPayload) => {
       if (!endpointInfo.uploadEndpoint) {
         throw new ApiError({
           status: 404,
           message: "Endpoint d'upload indisponible.",
         });
       }
-      const formData = new FormData();
-      formData.append(endpointInfo.fileFieldName, file);
+      if (payload.mode === "multipart") {
+        const formData = new FormData();
+        formData.append(endpointInfo.fileFieldName, payload.file);
+        return apiRequest(endpointInfo.uploadEndpoint, {
+          method: "POST",
+          body: formData,
+        });
+      }
       return apiRequest(endpointInfo.uploadEndpoint, {
         method: "POST",
-        body: formData,
+        body: payload.body,
       });
     },
-    onSuccess: async (data) => {
-      toast.success(`Import ${config.title.toLowerCase()} lance.`);
+    onSuccess: async (data, payload) => {
+      const summary = extractSummary(data);
+      const extra = summarizeForToast(summary);
+      toast.success(
+        `Import ${config.title.toLowerCase()} lance${extra ? ` (${extra})` : ""}.`
+      );
       setLastResponse(data);
       setLastError(null);
       setUploadError(null);
+      setLastMetadata(payload.metadata);
       setUploadFile(null);
       setFileInputKey((prev) => prev + 1);
       await Promise.all(
@@ -335,18 +403,19 @@ function ImportCard({
       if (error instanceof ApiError && [404, 501].includes(error.status)) {
         setUploadUnavailable(true);
       }
-      const message =
-        error instanceof ApiError && error.message
-          ? error.message
-          : "Impossible d'envoyer le fichier.";
+      const message = formatApiError(error);
       setUploadError(message);
       setLastError(message);
       toast.error(message);
     },
   });
 
+  const isUnavailable = uploadUnavailable || !endpointInfo.uploadEndpoint;
   const uploadDisabled =
-    uploadUnavailable || uploadMutation.isPending || uploadFile === null;
+    isUnavailable ||
+    uploadMutation.isPending ||
+    (endpointInfo.uploadType === "multipart" ? uploadFile === null : false) ||
+    (endpointInfo.uploadType === "json" ? parsedTenants.length === 0 : false);
   const fileInfo = uploadFile
     ? {
         name: uploadFile.name,
@@ -355,9 +424,9 @@ function ImportCard({
       }
     : null;
 
-  const missingReason =
-    !endpointInfo.uploadEndpoint &&
-    "Aucun endpoint d'upload n'est configure dans endpoints.ts pour cet import.";
+  const missingReason = !endpointInfo.uploadEndpoint
+    ? "Aucun endpoint d'upload n'est configure dans endpoints.ts pour cet import."
+    : "Endpoint d'upload indisponible (HTTP 404/501).";
 
   return (
     <Card className="flex h-full flex-col">
@@ -365,7 +434,7 @@ function ImportCard({
         <div className="space-y-1">
           <CardTitle className="flex items-center gap-2">
             {config.title}
-            {endpointInfo.uploadEndpoint ? (
+            {!isUnavailable ? (
               <Badge variant="outline">Actif</Badge>
             ) : (
               <Badge variant="outline">Non disponible</Badge>
@@ -375,7 +444,7 @@ function ImportCard({
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
-        {!endpointInfo.uploadEndpoint ? (
+        {isUnavailable ? (
           <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
             {missingReason}
           </div>
@@ -391,48 +460,108 @@ function ImportCard({
               toast.error("Endpoint d'upload indisponible.");
               return;
             }
-            if (!uploadFile) {
-              const message = "Selectionnez un fichier CSV.";
+            setUploadError(null);
+            if (endpointInfo.uploadType === "multipart") {
+              if (!uploadFile) {
+                const message = "Selectionnez un fichier CSV.";
+                setUploadError(message);
+                toast.error(message);
+                return;
+              }
+              const metadata = {
+                filename: uploadFile.name,
+                size: uploadFile.size,
+                type: uploadFile.type || "unknown",
+                lastModified: uploadFile.lastModified,
+              };
+              setLastMetadata(metadata);
+              uploadMutation.mutate({
+                mode: "multipart",
+                file: uploadFile,
+                metadata,
+              });
+              return;
+            }
+            if (!parsedTenants.length) {
+              const message = "Indiquez au moins un tenant.";
               setUploadError(message);
               toast.error(message);
               return;
             }
-            setUploadError(null);
-            uploadMutation.mutate(uploadFile);
+            const body = {
+              tenants: parsedTenants,
+              isolate_schema: isolateSchema,
+            };
+            setLastMetadata(body);
+            uploadMutation.mutate({
+              mode: "json",
+              body,
+              metadata: body,
+            });
           }}
         >
-          <div className="space-y-2">
-            <Label htmlFor={`upload-${config.key}`}>Fichier CSV</Label>
-            <Input
-              ref={fileInputRef}
-              key={fileInputKey}
-              id={`upload-${config.key}`}
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(event) => {
+          {endpointInfo.uploadType === "multipart" ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor={`upload-${config.key}`}>Fichier CSV</Label>
+                <Input
+                  ref={fileInputRef}
+                  key={fileInputKey}
+                  id={`upload-${config.key}`}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
                 setUploadFile(event.target.files?.[0] ?? null);
                 setUploadError(null);
                 setLastError(null);
               }}
-              disabled={uploadUnavailable}
+              disabled={isUnavailable}
             />
           </div>
-          {uploadMutation.isPending ? (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-64" />
-              <Skeleton className="h-4 w-48" />
-            </div>
-          ) : fileInfo ? (
-            <div className="space-y-1 text-sm">
-              <p className="font-medium text-foreground">{fileInfo.name}</p>
-              <p className="text-muted-foreground">
-                {fileInfo.size} · Derniere modification {fileInfo.updatedAt}
-              </p>
-            </div>
+              {uploadMutation.isPending ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-64" />
+                  <Skeleton className="h-4 w-48" />
+                </div>
+              ) : fileInfo ? (
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-foreground">{fileInfo.name}</p>
+                  <p className="text-muted-foreground">
+                    {fileInfo.size} · Derniere modification {fileInfo.updatedAt}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Aucun fichier selectionne.
+                </p>
+              )}
+            </>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Aucun fichier selectionne.
-            </p>
+            <div className="space-y-2">
+              <Label htmlFor={`tenant-${config.key}`}>
+                Tenants (separes par des virgules)
+              </Label>
+              <Input
+                id={`tenant-${config.key}`}
+                placeholder="ruhlmann, valentinr"
+                value={tenantInput}
+                onChange={(event) => {
+                  setTenantInput(event.target.value);
+                  setUploadError(null);
+                  setLastError(null);
+                }}
+                disabled={isUnavailable}
+              />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={isolateSchema}
+                  onChange={(event) => setIsolateSchema(event.target.checked)}
+                  disabled={isUnavailable}
+                />
+                Isoler les schemas (isolate_schema)
+              </label>
+            </div>
           )}
           {uploadError ? (
             <p className="text-sm text-rose-600">{uploadError}</p>
@@ -494,6 +623,32 @@ function ImportCard({
               description="Chargez un fichier pour lancer l'import."
             />
           )}
+        </div>
+
+        <div className="rounded-md border border-dashed border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+          <p className="text-xs font-semibold uppercase text-foreground">
+            Mode test
+          </p>
+          <div className="mt-2 space-y-1">
+            <p>
+              Endpoint:{" "}
+              <span className="font-medium text-foreground">
+                {endpointInfo.uploadEndpoint ?? "Non disponible"}
+              </span>
+            </p>
+            <p>
+              Type d'upload:{" "}
+              <span className="font-medium text-foreground">
+                {endpointInfo.uploadType === "json"
+                  ? "json"
+                  : "multipart/form-data"}
+              </span>
+            </p>
+            <p>Dernier payload (metadata)</p>
+            <pre className="mt-1 max-h-32 overflow-auto rounded-md border border-border/60 bg-background/80 p-2 text-[11px]">
+              {lastMetadata ? stringifyValue(lastMetadata) : "-"}
+            </pre>
+          </div>
         </div>
       </CardContent>
     </Card>
