@@ -141,8 +141,17 @@ function parseStatusValue(value: unknown): boolean | null {
   return null;
 }
 
+function isStatusCandidate(value: unknown): value is string | number | boolean {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
 function getSuccessValue(run: ImportRun) {
-  const direct = pickValue(run, ["success", "status", "state"], parseStatusValue);
+  const raw = pickValue(run, ["success", "status", "state"], isStatusCandidate);
+  const direct = parseStatusValue(raw);
   if (direct !== null) return direct;
   const verification = getVerification(run);
   if (verification) {
