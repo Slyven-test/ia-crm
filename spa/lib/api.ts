@@ -81,6 +81,34 @@ async function parseResponse(response: Response) {
   return response.text();
 }
 
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value === "undefined") return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatErrorMessage(data: unknown, fallback: string): string {
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    const detail = record.detail ?? record.message ?? record.error;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((item) => stringifyUnknown(item)).filter(Boolean).join(" ");
+    }
+    if (detail && typeof detail === "object") {
+      return stringifyUnknown(detail);
+    }
+    const fallbackMessage = stringifyUnknown(data);
+    return fallbackMessage || fallback;
+  }
+  return fallback;
+}
+
 async function refreshToken() {
   const response = await fetch(`${API_BASE}/auth/refresh`, {
     method: "POST",
@@ -159,10 +187,10 @@ export async function apiRequest<T>(
     if (!response.ok) {
       throw new ApiError({
         status: response.status,
-        message:
-          (data && typeof data === "object" && "detail" in data
-            ? String((data as { detail?: string }).detail)
-            : response.statusText) || "Request failed",
+        message: formatErrorMessage(
+          data,
+          response.statusText || "Request failed"
+        ),
         data,
       });
     }

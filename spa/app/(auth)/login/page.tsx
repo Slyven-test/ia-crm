@@ -13,22 +13,32 @@ import { apiRequest, ApiError } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 
 type LoginPayload = {
-  email: string;
+  username: string;
   password: string;
 };
 
 export default function LoginPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<LoginPayload>({ email: "", password: "" });
+  const [form, setForm] = useState<LoginPayload>({
+    username: "",
+    password: "",
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const login = useMutation({
     mutationFn: async (payload: LoginPayload) =>
       apiRequest(endpoints.auth.token, {
         method: "POST",
-        body: payload,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          username: payload.username,
+          password: payload.password,
+        }),
         skipAuth: true,
+        skipRefresh: true,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -68,15 +78,18 @@ export default function LoginPage() {
             }}
           >
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="username">Identifiant</Label>
               <Input
-                id="email"
+                id="username"
                 type="text"
                 autoComplete="username"
-                placeholder="email@entreprise.fr"
-                value={form.email}
+                placeholder="prenom.nom ou email@entreprise.fr"
+                value={form.username}
                 onChange={(event) =>
-                  setForm((prev) => ({ ...prev, email: event.target.value }))
+                  setForm((prev) => ({
+                    ...prev,
+                    username: event.target.value,
+                  }))
                 }
               />
             </div>
