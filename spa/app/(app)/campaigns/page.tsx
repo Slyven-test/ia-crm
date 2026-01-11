@@ -239,6 +239,17 @@ function formatApiErrorMessage(error: unknown, fallback: string): string {
   return `HTTP 0 - ${fallback}`;
 }
 
+function getUnavailableMessage(
+  available: boolean,
+  error: unknown,
+  fallback = "Non disponible"
+): string {
+  if (!available) {
+    return "HTTP 404 - Non disponible";
+  }
+  return formatApiErrorMessage(error, fallback);
+}
+
 function normalizeSegmentOptions(value: unknown): SegmentOption[] {
   if (Array.isArray(value)) {
     return value
@@ -434,7 +445,7 @@ export default function CampaignsPage() {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
       queryClient.invalidateQueries({ queryKey: ["audit", "latest"] }),
       queryClient.invalidateQueries({ queryKey: ["rfm"] }),
-      queryClient.invalidateQueries({ queryKey: ["segmentation"] }),
+      queryClient.invalidateQueries({ queryKey: ["reco-runs"] }),
     ];
     if (campaignId !== null && typeof campaignId !== "undefined") {
       tasks.push(
@@ -521,6 +532,9 @@ export default function CampaignsPage() {
         setPreviewUnavailable(true);
         setPreviewResponse(null);
         setPreviewPayload(null);
+        toast.error(
+          formatApiErrorMessage(error, "Previsualisation non disponible.")
+        );
         return;
       }
       setPreviewUnavailable(!previewEndpoint);
@@ -566,6 +580,7 @@ export default function CampaignsPage() {
         setSendUnavailable(true);
         setSendResponse(null);
         setSendPayload(null);
+        toast.error(formatApiErrorMessage(error, "Envoi non disponible."));
         return;
       }
       setSendUnavailable(!sendEndpoint);
@@ -734,7 +749,7 @@ export default function CampaignsPage() {
                 }}
                 disabled={statsDisabled}
               >
-                {statsDisabled ? "Stats indispo" : "Stats"}
+                {statsDisabled ? "Non disponible" : "Stats"}
               </Button>
               <Button
                 size="sm"
@@ -790,6 +805,31 @@ export default function CampaignsPage() {
     !statsAvailable ||
     statsUnavailable ||
     (statsQuery.isError && isUnavailableError(statsQuery.error));
+
+  const campaignsUnavailableMessage = getUnavailableMessage(
+    campaignsAvailable,
+    campaignsQuery.error
+  );
+  const templatesUnavailableMessage = getUnavailableMessage(
+    templatesAvailable,
+    templatesQuery.error
+  );
+  const segmentsUnavailableMessage = getUnavailableMessage(
+    segmentsAvailable,
+    segmentsQuery.error
+  );
+  const previewUnavailableMessage = getUnavailableMessage(
+    previewAvailable,
+    previewMutation.error
+  );
+  const sendUnavailableMessage = getUnavailableMessage(
+    sendAvailable,
+    sendBatchMutation.error
+  );
+  const statsUnavailableMessage = getUnavailableMessage(
+    statsAvailable,
+    statsQuery.error
+  );
 
   const canCreate = !campaignsUnavailable && form.name.trim().length > 0;
   const canPreview =
@@ -968,7 +1008,7 @@ export default function CampaignsPage() {
           {campaignsUnavailable ? (
             <EmptyState
               title="Campagnes indisponibles."
-              description="Non disponible (endpoint campagnes absent ou indisponible)."
+              description={campaignsUnavailableMessage}
             />
           ) : campaignsQuery.isLoading ? (
             <div className="space-y-3">
@@ -1047,7 +1087,7 @@ export default function CampaignsPage() {
                 ) : null}
                 {templatesUnavailable ? (
                   <div className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground">
-                    Non disponible (endpoint templates absent ou indisponible).
+                    {templatesUnavailableMessage}
                   </div>
                 ) : null}
                 {templatesQuery.isError && !templatesUnavailable ? (
@@ -1133,7 +1173,7 @@ export default function CampaignsPage() {
                     />
                     {segmentsUnavailable ? (
                       <div className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground">
-                        Non disponible (endpoint segments absent ou indisponible).
+                        {segmentsUnavailableMessage}
                       </div>
                     ) : null}
                     {segmentsQuery.isError && !segmentsUnavailable ? (
@@ -1223,7 +1263,7 @@ export default function CampaignsPage() {
               <CardContent className="space-y-4">
                 {!previewAvailable ? (
                   <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Non disponible (endpoint previsualisation absent).
+                    {previewUnavailableMessage}
                   </div>
                 ) : previewMutation.isPending ? (
                   <div className="space-y-3">
@@ -1232,7 +1272,7 @@ export default function CampaignsPage() {
                   </div>
                 ) : previewUnavailable ? (
                   <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Non disponible (backend non expose).
+                    {previewUnavailableMessage}
                   </div>
                 ) : previewNotice ? (
                   <ErrorState message={previewNotice} />
@@ -1320,7 +1360,7 @@ export default function CampaignsPage() {
               <CardContent className="space-y-4">
                 {!sendAvailable ? (
                   <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Non disponible (endpoint envoi absent).
+                    {sendUnavailableMessage}
                   </div>
                 ) : sendBatchMutation.isPending ? (
                   <div className="space-y-3">
@@ -1329,7 +1369,7 @@ export default function CampaignsPage() {
                   </div>
                 ) : sendUnavailable ? (
                   <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Non disponible (backend non expose).
+                    {sendUnavailableMessage}
                   </div>
                 ) : sendNotice ? (
                   <ErrorState message={sendNotice} />
@@ -1409,13 +1449,21 @@ export default function CampaignsPage() {
               onClick={handlePreview}
               disabled={!canPreview || previewMutation.isPending}
             >
-              {previewMutation.isPending ? "Chargement..." : "Previsualiser"}
+              {previewMutation.isPending
+                ? "Chargement..."
+                : previewUnavailableState
+                  ? "Non disponible"
+                  : "Previsualiser"}
             </Button>
             <Button
               onClick={handleSendBatch}
               disabled={!canSendBatch || sendBatchMutation.isPending}
             >
-              {sendBatchMutation.isPending ? "Envoi..." : "Envoyer le batch"}
+              {sendBatchMutation.isPending
+                ? "Envoi..."
+                : sendUnavailableState
+                  ? "Non disponible"
+                  : "Envoyer le batch"}
             </Button>
             <Button
               onClick={handleCreate}
@@ -1446,7 +1494,7 @@ export default function CampaignsPage() {
           </DialogHeader>
           {!statsAvailable ? (
             <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-              Non disponible (endpoint stats absent).
+              {statsUnavailableMessage}
             </div>
           ) : statsQuery.isLoading ? (
             <div className="space-y-3">
@@ -1455,7 +1503,7 @@ export default function CampaignsPage() {
             </div>
           ) : statsUnavailableState ? (
             <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
-              Non disponible (backend non expose).
+              {statsUnavailableMessage}
             </div>
           ) : statsQuery.isError ? (
             <ErrorState message={statsErrorMessage ?? ""} />

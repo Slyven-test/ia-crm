@@ -64,6 +64,17 @@ function formatApiErrorMessage(error: unknown, fallback: string): string {
   return `HTTP 0 - ${fallback}`;
 }
 
+function getUnavailableMessage(
+  available: boolean,
+  error: unknown,
+  fallback = "Non disponible"
+): string {
+  if (!available) {
+    return "HTTP 404 - Non disponible";
+  }
+  return formatApiErrorMessage(error, fallback);
+}
+
 function formatCellValue(value: unknown) {
   if (value === null || value === undefined) return "-";
   if (typeof value === "number") return formatNumber(value);
@@ -250,6 +261,15 @@ export default function SegmentationPage() {
     !clustersAvailable ||
     (clustersQuery.isError && isUnavailableError(clustersQuery.error));
 
+  const rfmUnavailableMessage = getUnavailableMessage(
+    rfmAvailable,
+    rfmQuery.error
+  );
+  const clustersUnavailableMessage = getUnavailableMessage(
+    clustersAvailable,
+    clustersQuery.error
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -278,7 +298,7 @@ export default function SegmentationPage() {
             {rfmUnavailable ? (
               <EmptyState
                 title="RFM indisponible."
-                description="Non disponible (endpoint RFM absent ou indisponible)."
+                description={rfmUnavailableMessage}
               />
             ) : rfmQuery.isLoading ? (
               <Skeleton className="h-40 w-full" />
@@ -324,7 +344,7 @@ export default function SegmentationPage() {
             {clustersUnavailable ? (
               <EmptyState
                 title="Clusters indisponibles."
-                description="Non disponible (endpoint clusters absent ou indisponible)."
+                description={clustersUnavailableMessage}
               />
             ) : clustersQuery.isLoading ? (
               <Skeleton className="h-40 w-full" />
