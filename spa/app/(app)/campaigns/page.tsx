@@ -2,7 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table";
@@ -412,15 +412,20 @@ export default function CampaignsPage() {
       return apiRequest<unknown>(statsEndpoint(statsCampaignId));
     },
     enabled: statsDialogOpen && statsCampaignId !== null && statsAvailable,
-    onSuccess: () => {
-      setStatsUnavailable(false);
-    },
-    onError: (error) => {
-      if (isUnavailableError(error)) {
-        setStatsUnavailable(true);
-      }
-    },
   });
+
+  useEffect(() => {
+    if (statsQuery.isSuccess) {
+      setStatsUnavailable(false);
+    }
+  }, [statsQuery.isSuccess, setStatsUnavailable]);
+
+  useEffect(() => {
+    if (!statsQuery.error) return;
+    if (isUnavailableError(statsQuery.error)) {
+      setStatsUnavailable(true);
+    }
+  }, [statsQuery.error, setStatsUnavailable]);
 
   const invalidateCampaignQueries = async (
     campaignId?: string | number | null
