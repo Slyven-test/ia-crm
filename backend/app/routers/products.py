@@ -4,7 +4,8 @@ Routes d'API pour la gestion des produits.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -17,13 +18,28 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 @router.get("/", response_model=list[schemas.ProductRead])
 def list_products(
+    q: str | None = Query(None, description="Recherche texte (clé, nom, famille)"),
+    limit: int = Query(100, ge=1, le=500, description="Nombre maximum de produits à retourner"),
+    offset: int = Query(0, ge=0, description="Décalage pour la pagination"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[schemas.ProductRead]:
     """Retourne les produits pour le tenant courant."""
+    query = db.query(Product).filter(Product.tenant_id == current_user.tenant_id)
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            or_(
+                Product.product_key.ilike(search),
+                Product.name.ilike(search),
+                Product.family_crm.ilike(search),
+                Product.sub_family.ilike(search),
+            )
+        )
     return (
-        db.query(Product)
-        .filter(Product.tenant_id == current_user.tenant_id)
+        query.order_by(Product.id.asc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 
@@ -47,8 +63,8 @@ def create_product(
         .first()
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Produit déjà existant")
-    product = Product(**product_in.dict(exclude={"tenant_id"}))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Produit déjà existant")
+    product = Product(**product_in.model_dump(exclude={"tenant_id"}))
     product.tenant_id = current_user.tenant_id
     db.add(product)
     db.commit()
@@ -77,7 +93,7 @@ def update_product(
     )
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-    update_data = product_update.dict(exclude_unset=True)
+    update_data = product_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(product, field, value)
     db.add(product)
