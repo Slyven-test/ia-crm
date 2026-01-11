@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/empty-state";
@@ -17,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiRequest } from "@/lib/api";
+import { ApiError, apiRequest } from "@/lib/api";
 import { endpoints } from "@/lib/endpoints";
 import { formatNumber, humanizeKey } from "@/lib/format";
 
@@ -28,10 +29,39 @@ type NormalizedTable = {
   rows: TableRowData[];
 };
 
+const UNAVAILABLE_STATUSES = new Set([404, 501]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object") return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function resolveStringEndpoint(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status);
+}
+
+function formatApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 0;
+    const message = error.message || fallback;
+    if (UNAVAILABLE_STATUSES.has(status)) {
+      return `HTTP ${status} - Non disponible`;
+    }
+    return `HTTP ${status} - ${message}`;
+  }
+  if (error instanceof Error) {
+    return `HTTP 0 - ${error.message}`;
+  }
+  return `HTTP 0 - ${fallback}`;
 }
 
 function formatCellValue(value: unknown) {
@@ -116,40 +146,89 @@ function SimpleTable({ columns, rows }: NormalizedTable) {
 }
 
 export default function SegmentationPage() {
+  const [rfmRunUnavailable, setRfmRunUnavailable] = useState(false);
+  const [clustersRecomputeUnavailable, setClustersRecomputeUnavailable] =
+    useState(false);
+  const endpointsRecord = endpoints as unknown as Record<string, unknown>;
+  const rfmRecord = isRecord(endpointsRecord.rfm) ? endpointsRecord.rfm : null;
+  const clustersRecord = isRecord(endpointsRecord.clusters)
+    ? endpointsRecord.clusters
+    : null;
+
+  const rfmDistributionEndpoint = resolveStringEndpoint(
+    rfmRecord?.distribution
+  );
+  const rfmRunEndpoint = resolveStringEndpoint(rfmRecord?.run);
+  const clustersListEndpoint = resolveStringEndpoint(clustersRecord?.list);
+  const clustersRecomputeEndpoint = resolveStringEndpoint(
+    clustersRecord?.recompute
+  );
+
+  const rfmAvailable = Boolean(rfmDistributionEndpoint);
+  const clustersAvailable = Boolean(clustersListEndpoint);
+
   const rfmQuery = useQuery({
-    queryKey: ["rfm", "distribution"],
-    queryFn: () => apiRequest<unknown>(endpoints.rfm.distribution),
+    queryKey: ["rfm", "distribution", rfmDistributionEndpoint ?? "none"],
+    queryFn: () => {
+      if (!rfmDistributionEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(rfmDistributionEndpoint);
+    },
+    enabled: rfmAvailable,
   });
   const clustersQuery = useQuery({
-    queryKey: ["clusters"],
-    queryFn: () => apiRequest<unknown>(endpoints.clusters.list),
+    queryKey: ["clusters", clustersListEndpoint ?? "none"],
+    queryFn: () => {
+      if (!clustersListEndpoint) return Promise.resolve(null);
+      return apiRequest<unknown>(clustersListEndpoint);
+    },
+    enabled: clustersAvailable,
   });
 
   const rfmRun = useMutation({
-    mutationFn: () =>
-      apiRequest(endpoints.rfm.run, {
+    mutationFn: () => {
+      if (!rfmRunEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest(rfmRunEndpoint, {
         method: "POST",
-      }),
-    onSuccess: () => {
-      toast.success("Analyse RFM lancee.");
-      rfmQuery.refetch();
+      });
     },
-    onError: () => {
-      toast.error("Impossible de lancer l'analyse RFM.");
+    onSuccess: async () => {
+      toast.success("Analyse RFM lancee.");
+      setRfmRunUnavailable(false);
+      await rfmQuery.refetch();
+    },
+    onError: (error) => {
+      if (isUnavailableError(error)) {
+        setRfmRunUnavailable(true);
+      }
+      toast.error(
+        formatApiErrorMessage(error, "Impossible de lancer l'analyse RFM.")
+      );
     },
   });
 
   const recomputeClusters = useMutation({
-    mutationFn: () =>
-      apiRequest(endpoints.clusters.recompute, {
+    mutationFn: () => {
+      if (!clustersRecomputeEndpoint) {
+        throw new ApiError({ status: 404, message: "Endpoint absent." });
+      }
+      return apiRequest(clustersRecomputeEndpoint, {
         method: "POST",
-      }),
-    onSuccess: () => {
-      toast.success("Recalcul des clusters lance.");
-      clustersQuery.refetch();
+      });
     },
-    onError: () => {
-      toast.error("Impossible de recalculer les clusters.");
+    onSuccess: async () => {
+      toast.success("Recalcul des clusters lance.");
+      setClustersRecomputeUnavailable(false);
+      await clustersQuery.refetch();
+    },
+    onError: (error) => {
+      if (isUnavailableError(error)) {
+        setClustersRecomputeUnavailable(true);
+      }
+      toast.error(
+        formatApiErrorMessage(error, "Impossible de recalculer les clusters.")
+      );
     },
   });
 
@@ -164,6 +243,13 @@ export default function SegmentationPage() {
     fallbackLabel: "Valeur",
   });
 
+  const rfmUnavailable =
+    !rfmAvailable ||
+    (rfmQuery.isError && isUnavailableError(rfmQuery.error));
+  const clustersUnavailable =
+    !clustersAvailable ||
+    (clustersQuery.isError && isUnavailableError(clustersQuery.error));
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -176,16 +262,33 @@ export default function SegmentationPage() {
             <CardTitle>RFM</CardTitle>
             <Button
               onClick={() => rfmRun.mutate()}
-              disabled={rfmRun.isPending}
+              disabled={
+                !rfmRunEndpoint ||
+                rfmRun.isPending ||
+                rfmUnavailable ||
+                rfmRunUnavailable
+              }
             >
-              Lancer RFM
+              {rfmRunEndpoint && !rfmUnavailable && !rfmRunUnavailable
+                ? "Lancer RFM"
+                : "Non disponible"}
             </Button>
           </CardHeader>
           <CardContent>
-            {rfmQuery.isLoading ? (
+            {rfmUnavailable ? (
+              <EmptyState
+                title="RFM indisponible."
+                description="Non disponible (endpoint RFM absent ou indisponible)."
+              />
+            ) : rfmQuery.isLoading ? (
               <Skeleton className="h-40 w-full" />
             ) : rfmQuery.error ? (
-              <ErrorState message="Impossible de charger la distribution RFM." />
+              <ErrorState
+                message={formatApiErrorMessage(
+                  rfmQuery.error,
+                  "Impossible de charger la distribution RFM."
+                )}
+              />
             ) : rfmTable.rows.length ? (
               <SimpleTable {...rfmTable} />
             ) : (
@@ -203,16 +306,35 @@ export default function SegmentationPage() {
             <Button
               variant="outline"
               onClick={() => recomputeClusters.mutate()}
-              disabled={recomputeClusters.isPending}
+              disabled={
+                !clustersRecomputeEndpoint ||
+                recomputeClusters.isPending ||
+                clustersUnavailable ||
+                clustersRecomputeUnavailable
+              }
             >
-              Recalculer clusters
+              {clustersRecomputeEndpoint &&
+              !clustersUnavailable &&
+              !clustersRecomputeUnavailable
+                ? "Recalculer clusters"
+                : "Non disponible"}
             </Button>
           </CardHeader>
           <CardContent>
-            {clustersQuery.isLoading ? (
+            {clustersUnavailable ? (
+              <EmptyState
+                title="Clusters indisponibles."
+                description="Non disponible (endpoint clusters absent ou indisponible)."
+              />
+            ) : clustersQuery.isLoading ? (
               <Skeleton className="h-40 w-full" />
             ) : clustersQuery.error ? (
-              <ErrorState message="Impossible de charger les clusters." />
+              <ErrorState
+                message={formatApiErrorMessage(
+                  clustersQuery.error,
+                  "Impossible de charger les clusters."
+                )}
+              />
             ) : clustersTable.rows.length ? (
               <SimpleTable {...clustersTable} />
             ) : (

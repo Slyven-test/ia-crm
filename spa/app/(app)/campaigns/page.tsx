@@ -1,7 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -218,14 +218,25 @@ function getStatusBadge(status: string | number | null) {
   return <Badge variant="outline">{label}</Badge>;
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return fallback;
-}
+const UNAVAILABLE_STATUSES = new Set([404, 501]);
 
 function isUnavailableError(error: unknown): boolean {
-  return error instanceof ApiError && [404, 501].includes(error.status);
+  return error instanceof ApiError && UNAVAILABLE_STATUSES.has(error.status);
+}
+
+function formatApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const status = error.status ?? 0;
+    const message = error.message || fallback;
+    if (UNAVAILABLE_STATUSES.has(status)) {
+      return `HTTP ${status} - Non disponible`;
+    }
+    return `HTTP ${status} - ${message}`;
+  }
+  if (error instanceof Error) {
+    return `HTTP 0 - ${error.message}`;
+  }
+  return `HTTP 0 - ${fallback}`;
 }
 
 function normalizeSegmentOptions(value: unknown): SegmentOption[] {
@@ -298,7 +309,13 @@ function stringifyJson(value: unknown) {
 }
 
 export default function CampaignsPage() {
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [statsDialogOpen, setStatsDialogOpen] = useState(false);
+  const [statsCampaignId, setStatsCampaignId] = useState<string | number | null>(
+    null
+  );
+  const [statsUnavailable, setStatsUnavailable] = useState(false);
   const [form, setForm] = useState<CampaignFormState>(defaultFormState);
   const [previewResponse, setPreviewResponse] =
     useState<CampaignPreviewResponse | null>(null);
@@ -313,6 +330,7 @@ export default function CampaignsPage() {
   const [sendUnavailable, setSendUnavailable] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | number | null>(null);
+  const [sendByIdUnavailable, setSendByIdUnavailable] = useState(false);
 
   const endpointsRecord = endpoints as unknown as Record<string, unknown>;
   const campaignsRecord = isRecord(endpointsRecord.campaigns)
@@ -333,6 +351,7 @@ export default function CampaignsPage() {
   const sendByIdEndpoint = resolveEndpointFn(
     campaignsRecord?.sendById
   );
+  const statsEndpoint = resolveEndpointFn(campaignsRecord?.stats);
   const templatesEndpoint = resolveStringEndpoint(
     campaignsRecord?.templates
   );
@@ -348,6 +367,7 @@ export default function CampaignsPage() {
   const campaignsAvailable = Boolean(campaignsEndpoint);
   const previewAvailable = Boolean(previewEndpoint);
   const sendAvailable = Boolean(sendEndpoint);
+  const statsAvailable = Boolean(statsEndpoint);
 
   const campaignsQuery = useQuery({
     queryKey: ["campaigns", campaignsEndpoint ?? "none"],
@@ -385,6 +405,42 @@ export default function CampaignsPage() {
     enabled: Boolean(runsEndpoint),
   });
 
+  const statsQuery = useQuery({
+    queryKey: ["campaigns", "stats", statsCampaignId ?? "none"],
+    queryFn: () => {
+      if (!statsEndpoint || statsCampaignId === null) return Promise.resolve(null);
+      return apiRequest<unknown>(statsEndpoint(statsCampaignId));
+    },
+    enabled: statsDialogOpen && statsCampaignId !== null && statsAvailable,
+    onSuccess: () => {
+      setStatsUnavailable(false);
+    },
+    onError: (error) => {
+      if (isUnavailableError(error)) {
+        setStatsUnavailable(true);
+      }
+    },
+  });
+
+  const invalidateCampaignQueries = async (
+    campaignId?: string | number | null
+  ) => {
+    const tasks = [
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
+      queryClient.invalidateQueries({ queryKey: ["audit", "latest"] }),
+      queryClient.invalidateQueries({ queryKey: ["rfm"] }),
+      queryClient.invalidateQueries({ queryKey: ["segmentation"] }),
+    ];
+    if (campaignId !== null && typeof campaignId !== "undefined") {
+      tasks.push(
+        queryClient.invalidateQueries({
+          queryKey: ["campaigns", "stats", campaignId],
+        })
+      );
+    }
+    await Promise.all(tasks);
+  };
+
   const createMutation = useMutation({
     mutationFn: (payload: CampaignCreatePayload) => {
       if (!campaignsEndpoint) {
@@ -395,9 +451,13 @@ export default function CampaignsPage() {
         body: payload,
       });
     },
-    onSuccess: () => {
-      toast.success("Campagne creee.");
-      campaignsQuery.refetch();
+    onSuccess: async (data) => {
+      const campaignId = data && isRecord(data) ? getCampaignId(data) : null;
+      const summary = campaignId !== null ? `ID ${campaignId}` : null;
+      toast.success(
+        summary ? `Campagne creee (${summary}).` : "Campagne creee."
+      );
+      await invalidateCampaignQueries(campaignId);
       setDialogOpen(false);
       setForm(defaultFormState);
       setPreviewResponse(null);
@@ -410,7 +470,9 @@ export default function CampaignsPage() {
       setSendNotice(null);
     },
     onError: (error) => {
-      toast.error(getErrorMessage(error, "Impossible de creer la campagne."));
+      toast.error(
+        formatApiErrorMessage(error, "Impossible de creer la campagne.")
+      );
     },
   });
 
@@ -424,12 +486,30 @@ export default function CampaignsPage() {
         body: payload,
       });
     },
-    onSuccess: (data, payload) => {
+    onSuccess: async (data, payload) => {
       setPreviewResponse(data);
       setPreviewPayload(payload);
       setPreviewUnavailable(false);
       setPreviewNotice(null);
-      toast.success("Previsualisation generee.");
+      const summary =
+        data && isRecord(data)
+          ? [
+              typeof data.n_selected === "number"
+                ? `selectionnes: ${data.n_selected}`
+                : null,
+              typeof data.n_in_batch === "number"
+                ? `batch: ${data.n_in_batch}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : null;
+      toast.success(
+        summary
+          ? `Previsualisation generee (${summary}).`
+          : "Previsualisation generee."
+      );
+      await invalidateCampaignQueries(null);
     },
     onError: (error) => {
       if (isUnavailableError(error)) {
@@ -439,7 +519,7 @@ export default function CampaignsPage() {
         return;
       }
       setPreviewUnavailable(!previewEndpoint);
-      toast.error(getErrorMessage(error, "Impossible de previsualiser."));
+      toast.error(formatApiErrorMessage(error, "Impossible de previsualiser."));
     },
   });
 
@@ -453,13 +533,28 @@ export default function CampaignsPage() {
         body: payload,
       });
     },
-    onSuccess: (data, payload) => {
+    onSuccess: async (data, payload) => {
       setSendResponse(data);
       setSendPayload(payload);
       setSendUnavailable(false);
       setSendNotice(null);
-      toast.success("Batch d'envoi lance.");
-      campaignsQuery.refetch();
+      const summary =
+        data && isRecord(data)
+          ? [
+              typeof data.n_selected === "number"
+                ? `selectionnes: ${data.n_selected}`
+                : null,
+              typeof data.n_in_batch === "number"
+                ? `batch: ${data.n_in_batch}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : null;
+      toast.success(
+        summary ? `Batch d'envoi lance (${summary}).` : "Batch d'envoi lance."
+      );
+      await invalidateCampaignQueries(null);
     },
     onError: (error) => {
       if (isUnavailableError(error)) {
@@ -469,7 +564,9 @@ export default function CampaignsPage() {
         return;
       }
       setSendUnavailable(!sendEndpoint);
-      toast.error(getErrorMessage(error, "Impossible de lancer l'envoi."));
+      toast.error(
+        formatApiErrorMessage(error, "Impossible de lancer l'envoi.")
+      );
     },
   });
 
@@ -483,16 +580,32 @@ export default function CampaignsPage() {
     onMutate: (campaignId) => {
       setSendingId(campaignId);
     },
-    onSuccess: () => {
-      toast.success("Envoi de campagne lance.");
-      campaignsQuery.refetch();
+    onSuccess: async (data, campaignId) => {
+      const summary =
+        data && isRecord(data)
+          ? [
+              typeof data.count === "number" ? `destinataires: ${data.count}` : null,
+              typeof data.message === "string" ? data.message : null,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : null;
+      toast.success(
+        summary
+          ? `Envoi de campagne lance (${summary}).`
+          : "Envoi de campagne lance."
+      );
+      await invalidateCampaignQueries(campaignId);
     },
     onError: (error) => {
       if (isUnavailableError(error)) {
-        toast.error("Envoi non disponible.");
+        setSendByIdUnavailable(true);
+        toast.error(formatApiErrorMessage(error, "Envoi non disponible."));
         return;
       }
-      toast.error(getErrorMessage(error, "Impossible d'envoyer la campagne."));
+      toast.error(
+        formatApiErrorMessage(error, "Impossible d'envoyer la campagne.")
+      );
     },
     onSettled: () => {
       setSendingId(null);
@@ -519,6 +632,19 @@ export default function CampaignsPage() {
       .map((value) => String(value));
     return Array.from(new Set(ids));
   }, [runsQuery.data]);
+
+  const statsEntries = useMemo(() => {
+    if (!isRecord(statsQuery.data)) return [];
+    return Object.entries(statsQuery.data)
+      .filter((entry) =>
+        ["string", "number", "boolean"].includes(typeof entry[1])
+      )
+      .map(([key, value]) => ({
+        label: key,
+        value:
+          typeof value === "boolean" ? (value ? "Oui" : "Non") : String(value),
+      }));
+  }, [statsQuery.data]);
 
   const columns = useMemo<ColumnDef<CampaignRow>[]>(
     () => [
@@ -571,84 +697,145 @@ export default function CampaignsPage() {
           const isPending =
             sendMutation.isPending && campaignId !== null && campaignId === sendingId;
 
-          if (!sendByIdEndpoint) {
-            return (
-              <Button size="sm" variant="outline" disabled>
-                Non disponible
-              </Button>
-            );
-          }
+          const statsDisabled =
+            !statsEndpoint || campaignId === null || statsUnavailable;
+          const sendDisabled =
+            !sendByIdEndpoint ||
+            campaignId === null ||
+            sendByIdUnavailable ||
+            isPending;
 
-          if (isSent) {
+          if (!sendByIdEndpoint && !statsEndpoint) {
             return (
-              <Button size="sm" variant="outline" disabled>
-                Deja envoyee
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled>
+                  Non disponible
+                </Button>
+              </div>
             );
           }
 
           return (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (campaignId !== null) {
-                  sendMutation.mutate(campaignId);
-                }
-              }}
-              disabled={campaignId === null || isPending}
-            >
-              {isPending ? "Envoi..." : "Envoyer"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (campaignId !== null) {
+                    setStatsCampaignId(campaignId);
+                    setStatsUnavailable(false);
+                    setStatsDialogOpen(true);
+                  }
+                }}
+                disabled={statsDisabled}
+              >
+                {statsDisabled ? "Stats indispo" : "Stats"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (campaignId !== null) {
+                    sendMutation.mutate(campaignId);
+                  }
+                }}
+                disabled={sendDisabled || isSent}
+              >
+                {!sendByIdEndpoint || sendByIdUnavailable
+                  ? "Non disponible"
+                  : isPending
+                    ? "Envoi..."
+                    : isSent
+                      ? "Deja envoyee"
+                      : "Envoyer"}
+              </Button>
+            </div>
           );
         },
       },
     ],
-    [sendByIdEndpoint, sendMutation, sendingId]
+    [
+      sendByIdEndpoint,
+      sendByIdUnavailable,
+      sendMutation,
+      sendingId,
+      statsEndpoint,
+      statsUnavailable,
+    ]
   );
 
-  const canCreate = campaignsAvailable && form.name.trim().length > 0;
-  const canPreview = previewAvailable && form.templateId.trim().length > 0;
-  const canSendBatch = sendAvailable && form.templateId.trim().length > 0;
+  const campaignsUnavailable =
+    !campaignsAvailable ||
+    (campaignsQuery.isError && isUnavailableError(campaignsQuery.error));
+  const previewUnavailableState =
+    !previewAvailable ||
+    previewUnavailable ||
+    (previewMutation.isError && isUnavailableError(previewMutation.error));
+  const sendUnavailableState =
+    !sendAvailable ||
+    sendUnavailable ||
+    (sendBatchMutation.isError && isUnavailableError(sendBatchMutation.error));
+  const templatesUnavailable =
+    !templatesAvailable ||
+    (templatesQuery.isError && isUnavailableError(templatesQuery.error));
+  const segmentsUnavailable =
+    !segmentsAvailable ||
+    (segmentsQuery.isError && isUnavailableError(segmentsQuery.error));
+  const statsUnavailableState =
+    !statsAvailable ||
+    statsUnavailable ||
+    (statsQuery.isError && isUnavailableError(statsQuery.error));
+
+  const canCreate = !campaignsUnavailable && form.name.trim().length > 0;
+  const canPreview =
+    !previewUnavailableState && form.templateId.trim().length > 0;
+  const canSendBatch =
+    !sendUnavailableState && form.templateId.trim().length > 0;
 
   const listErrorMessage = campaignsQuery.isError
-    ? getErrorMessage(
+    ? formatApiErrorMessage(
         campaignsQuery.error,
         "Impossible de charger les campagnes."
       )
     : null;
   const createErrorMessage = createMutation.isError
-    ? getErrorMessage(createMutation.error, "Impossible de creer la campagne.")
+    ? formatApiErrorMessage(
+        createMutation.error,
+        "Impossible de creer la campagne."
+      )
     : null;
   const previewErrorMessage =
     previewMutation.isError && !previewUnavailable
-      ? getErrorMessage(
+      ? formatApiErrorMessage(
           previewMutation.error,
           "Impossible de charger la previsualisation."
         )
       : null;
   const sendErrorMessage =
     sendBatchMutation.isError && !sendUnavailable
-      ? getErrorMessage(sendBatchMutation.error, "Impossible d'envoyer le batch.")
+      ? formatApiErrorMessage(
+          sendBatchMutation.error,
+          "Impossible d'envoyer le batch."
+        )
       : null;
   const segmentsErrorMessage = segmentsQuery.isError
-    ? getErrorMessage(
+    ? formatApiErrorMessage(
         segmentsQuery.error,
         "Impossible de charger les audiences."
       )
     : null;
   const templatesErrorMessage = templatesQuery.isError
-    ? getErrorMessage(
+    ? formatApiErrorMessage(
         templatesQuery.error,
         "Impossible de charger les templates."
       )
     : null;
-  const segmentsUnavailable =
-    !segmentsAvailable ||
-    (segmentsQuery.isError && isUnavailableError(segmentsQuery.error));
-  const templatesUnavailable =
-    !templatesAvailable ||
-    (templatesQuery.isError && isUnavailableError(templatesQuery.error));
+  const statsErrorMessage = statsQuery.isError
+    ? formatApiErrorMessage(
+        statsQuery.error,
+        "Impossible de charger les statistiques."
+      )
+    : null;
 
   const handleDialogChange = (open: boolean) => {
     setDialogOpen(open);
@@ -747,9 +934,9 @@ export default function CampaignsPage() {
         actions={
           <Button
             onClick={() => setDialogOpen(true)}
-            disabled={!campaignsAvailable}
+            disabled={campaignsUnavailable}
           >
-            {campaignsAvailable ? "Nouvelle campagne" : "Non disponible"}
+            {campaignsUnavailable ? "Non disponible" : "Nouvelle campagne"}
           </Button>
         }
       />
@@ -766,17 +953,17 @@ export default function CampaignsPage() {
             <Button
               variant="outline"
               onClick={() => campaignsQuery.refetch()}
-              disabled={!campaignsAvailable || campaignsQuery.isFetching}
+              disabled={campaignsUnavailable || campaignsQuery.isFetching}
             >
               {campaignsQuery.isFetching ? "Chargement..." : "Rafraichir"}
             </Button>
           </CardAction>
         </CardHeader>
-        <CardContent>
-          {!campaignsAvailable ? (
+          <CardContent>
+          {campaignsUnavailable ? (
             <EmptyState
               title="Campagnes indisponibles."
-              description="Endpoint campagnes absent."
+              description="Non disponible (endpoint campagnes absent ou indisponible)."
             />
           ) : campaignsQuery.isLoading ? (
             <div className="space-y-3">
@@ -855,10 +1042,10 @@ export default function CampaignsPage() {
                 ) : null}
                 {templatesUnavailable ? (
                   <div className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground">
-                    Non disponible (endpoint templates absent).
+                    Non disponible (endpoint templates absent ou indisponible).
                   </div>
                 ) : null}
-                {templatesQuery.isError ? (
+                {templatesQuery.isError && !templatesUnavailable ? (
                   <ErrorState message={templatesErrorMessage ?? ""} />
                 ) : null}
                 <p className="text-xs text-muted-foreground">
@@ -922,7 +1109,7 @@ export default function CampaignsPage() {
                         </option>
                       ))}
                     </select>
-                    {segmentsQuery.isError ? (
+                    {segmentsQuery.isError && !segmentsUnavailable ? (
                       <ErrorState message={segmentsErrorMessage ?? ""} />
                     ) : null}
                   </>
@@ -941,10 +1128,10 @@ export default function CampaignsPage() {
                     />
                     {segmentsUnavailable ? (
                       <div className="rounded-md border border-border/60 p-3 text-sm text-muted-foreground">
-                        Non disponible (endpoint segments absent).
+                        Non disponible (endpoint segments absent ou indisponible).
                       </div>
                     ) : null}
-                    {segmentsQuery.isError ? (
+                    {segmentsQuery.isError && !segmentsUnavailable ? (
                       <ErrorState message={segmentsErrorMessage ?? ""} />
                     ) : null}
                   </>
@@ -1230,6 +1417,74 @@ export default function CampaignsPage() {
               disabled={!canCreate || createMutation.isPending}
             >
               {createMutation.isPending ? "Creation..." : "Creer la campagne"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={statsDialogOpen}
+        onOpenChange={(open) => {
+          setStatsDialogOpen(open);
+          if (!open) {
+            setStatsCampaignId(null);
+            setStatsUnavailable(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Statistiques campagne</DialogTitle>
+            <DialogDescription>
+              Suivi des delivrances et performances si disponible.
+            </DialogDescription>
+          </DialogHeader>
+          {!statsAvailable ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+              Non disponible (endpoint stats absent).
+            </div>
+          ) : statsQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-28 w-full" />
+            </div>
+          ) : statsUnavailableState ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+              Non disponible (backend non expose).
+            </div>
+          ) : statsQuery.isError ? (
+            <ErrorState message={statsErrorMessage ?? ""} />
+          ) : statsEntries.length ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {statsEntries.map((entry) => (
+                <div
+                  key={entry.label}
+                  className="rounded-md border border-border/60 p-3 text-sm"
+                >
+                  <div className="text-xs text-muted-foreground">
+                    {entry.label}
+                  </div>
+                  <div className="font-medium">{entry.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : statsQuery.data ? (
+            <pre className="max-h-64 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+              {stringifyJson(statsQuery.data)}
+            </pre>
+          ) : (
+            <EmptyState
+              title="Aucune statistique disponible."
+              description="Lancez un envoi pour alimenter les stats."
+            />
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => statsQuery.refetch()}
+              disabled={!statsAvailable || statsQuery.isFetching || statsUnavailableState}
+            >
+              {statsQuery.isFetching ? "Chargement..." : "Rafraichir"}
             </Button>
           </DialogFooter>
         </DialogContent>
