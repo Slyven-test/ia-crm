@@ -38,6 +38,7 @@ spa/.next/
 # --- runtime data (local) ---
 exports/
 imports/
+out/
 reco_output.csv
 *.bak
 *.bak.*

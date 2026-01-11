@@ -9,10 +9,10 @@ step() {
 }
 
 step "./scripts/http_smoke.sh (local)"
-BASE_URL="http://127.0.0.1:3000" "$ROOT_DIR/scripts/http_smoke.sh"
+BASE_URL="http://127.0.0.1:18080" "$ROOT_DIR/scripts/http_smoke.sh"
 
 step "./scripts/http_smoke.sh (proxy local)"
-BASE_URL="https://127.0.0.1" HOST_HEADER="app.ia-crm.aubach.fr" "$ROOT_DIR/scripts/http_smoke.sh"
+INSECURE=1 BASE_URL="https://127.0.0.1" HOST_HEADER="app.ia-crm.aubach.fr" "$ROOT_DIR/scripts/http_smoke.sh"
 
 step "./scripts/http_smoke.sh (public)"
 BASE_URL="https://app.ia-crm.aubach.fr" "$ROOT_DIR/scripts/http_smoke.sh"

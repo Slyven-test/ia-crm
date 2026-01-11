@@ -21,6 +21,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env.prod
+    # ADMIN_* variables are sourced from .env.prod
     environment:
       PYTHONPATH: /app:/app/etl
       DATA_DIR: /app/data
@@ -40,6 +41,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env.prod
+    # ADMIN_* variables are sourced from .env.prod
     environment:
       PYTHONPATH: /app:/app/etl
       CELERY_BROKER_URL: redis://redis:6379/0

@@ -43,7 +43,7 @@ def compute_client_preferences(db: Session, tenant_id: int) -> None:
         .filter(Product.tenant_id == tenant_id)
         .all()
     )
-    family_map: Dict[str, str] = {p.product_key: (p.family or "unknown") for p in products}
+    family_map: Dict[str, str] = {p.product_key: (getattr(p, 'family_crm', None) or getattr(p, 'family', None) or 'unknown') for p in products}
     # Récupérer toutes les ventes
     sales = db.query(Sale).filter(Sale.tenant_id == tenant_id).all()
     # Organiser par client_code

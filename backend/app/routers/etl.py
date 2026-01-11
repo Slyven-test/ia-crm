@@ -69,6 +69,18 @@ def _get_state_file() -> Path:
     os.makedirs(data_dir, exist_ok=True)
     return Path(data_dir) / "etl_state.json"
 
+def _etl_feature_enabled() -> bool:
+    flag = os.getenv("ETL_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
+    return flag and run_etl_multi_tenant is not None
+
+
+def _ensure_etl_available() -> None:
+    if not _etl_feature_enabled():
+        raise HTTPException(
+            status_code=501,
+            detail="ETL non disponible (feature désactivée ou dépendance manquante)",
+        )
+
 
 def _write_state(state: dict) -> None:
     """Écrit l'état du pipeline dans le fichier JSON dédié."""
@@ -96,10 +108,8 @@ def _run_and_update_state(tenants: List[str], isolate_schema: bool) -> None:
         tenants: liste des identifiants de locataires
         isolate_schema: booléen pour séparer les schémas
     """
-    if run_etl_multi_tenant is None:
-        raise RuntimeError(
-            "La fonction run_etl_multi_tenant n'est pas disponible. Vérifiez l'installation de l'ETL."
-        )
+    if not _etl_feature_enabled():
+        raise RuntimeError("ETL non disponible (feature désactivée ou dépendance manquante)")
     results = run_etl_multi_tenant(tenants, isolate_schema=isolate_schema)
     new_state = {
         "last_run_at": datetime.utcnow().isoformat(),
@@ -114,8 +124,7 @@ async def ingest_etl(request: ETLRequest, background_tasks: BackgroundTasks) -> 
 
     La tâche est exécutée en arrière-plan afin de ne pas bloquer la requête HTTP.
     """
-    if run_etl_multi_tenant is None:
-        raise HTTPException(status_code=500, detail="Le pipeline ETL n'est pas disponible")
+    _ensure_etl_available()
     # Ajouter la tâche à exécuter en arrière-plan
     background_tasks.add_task(
         _run_and_update_state, request.tenants, request.isolate_schema or False
@@ -133,6 +142,7 @@ def get_etl_state() -> dict:
 
     Si aucun état n'est présent, renvoie un objet vide avec ``last_run_at`` à ``None``.
     """
+    _ensure_etl_available()
     state = _read_state()
     if not state:
         return {"last_run_at": None, "results": []}

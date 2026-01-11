@@ -19,7 +19,7 @@ from ..services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 
 @router.post("/register", response_model=schemas.UserRead)

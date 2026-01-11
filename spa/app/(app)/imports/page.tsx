@@ -285,7 +285,7 @@ function extractSummary(response: unknown): ImportSummary {
         const formatted = stringifyValue(item);
         if (formatted && formatted !== "-") errors.push(formatted);
       });
-    } else if (value) {
+    } else if (value !== null && value !== undefined && value !== "") {
       errors.push(stringifyValue(value));
     }
   }

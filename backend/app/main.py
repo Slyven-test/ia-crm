@@ -163,7 +163,7 @@ def create_app() -> FastAPI:
         """Inclut un routeur optionnel sans casser le démarrage si le module manque."""
         logger = logging.getLogger(__name__)
         try:
-            module = importlib.import_module(module_path)
+            module = importlib.import_module(module_path, package=__package__)
             router = getattr(module, "router")
             app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
         except Exception as exc:  # pragma: no cover - import errors only
@@ -176,13 +176,13 @@ def create_app() -> FastAPI:
 
     # Inclure les routeurs sans préfixe (compatibilité)
     _include_core_routes()
-    _include_optional("backend.app.routers.etl", "etl")
-    _include_optional("backend.app.routers.brevo", "brevo")
+    _include_optional(".routers.etl", "etl")
+    _include_optional(".routers.brevo", "brevo")
 
     # Inclure les mêmes routeurs sous /api pour le frontend
     _include_core_routes(prefix="/api", include_in_schema=False)
-    _include_optional("backend.app.routers.etl", "etl", prefix="/api", include_in_schema=False)
-    _include_optional("backend.app.routers.brevo", "brevo", prefix="/api", include_in_schema=False)
+    _include_optional(".routers.etl", "etl", prefix="/api", include_in_schema=False)
+    _include_optional(".routers.brevo", "brevo", prefix="/api", include_in_schema=False)
 
 
     @app.get("/")
