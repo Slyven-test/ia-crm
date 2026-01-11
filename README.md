@@ -108,6 +108,22 @@ pytest tests/test_e2e_api.py::test_e2e_pipeline_with_exports
 
 Le test copie les fixtures `samples/isavigne`, exécute l’ETL multi-tenant, lance un run de recommandations via l’API (auth mockée) puis vérifie les exports (`reco_output`, `audit_output`, `next_action_output`, `run_summary`) et le gating (`gate_export` doit être `False` car un client n’a pas d’email).
 
+#### Run full pipeline (auth CLI requis)
+
+Une exécution reproductible qui enchaîne RFM → recommandations → vérification → exports :
+
+```bash
+BASE="https://app.ia-crm.aubach.fr" \\
+USER="admin" \\
+PASS="..." \\
+./scripts/run_pipeline.sh
+```
+
+Résultats attendus :
+* logs explicites par étape (codes HTTP, éventuels endpoints à 501 ignorés) ;
+* un `run_id` détecté depuis `/api/reco-runs/` ;
+* exports téléchargés dans `out/` : `run_summary_<run_id>.json`, `reco_output_<run_id>.csv`, `audit_output_<run_id>.csv`, `next_action_<run_id>.csv`.
+
 #### Smoke UI (pages Runs/QC/Exports/Campagnes)
 
 Pour vérifier rapidement le chargement des principales pages front avec la démo (`demo/demo`) :

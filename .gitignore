@@ -20,3 +20,25 @@ frontend/src/**/*.js
 _bak/
 .env.prod
 AGENTS.md
+
+# --- Python artefacts ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# --- local DB / sqlite ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Next runtime ---
+spa/.next/
+
+# --- runtime data (local) ---
+exports/
+imports/
+out/
+reco_output.csv
+*.bak
+*.bak.*

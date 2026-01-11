@@ -12,6 +12,17 @@ export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT}}"
 
 BACKEND_PID=""
 FRONTEND_PID=""
+PYTHON_BIN="python3"
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  if command -v python >/dev/null 2>&1; then
+    echo "python3 introuvable, fallback sur python." >&2
+    PYTHON_BIN="python"
+  else
+    echo "python3 est requis pour lancer le backend (python introuvable aussi)." >&2
+    exit 1
+  fi
+fi
 
 cleanup() {
   if [[ -n "$FRONTEND_PID" ]]; then
@@ -38,7 +49,7 @@ wait_for_url() {
 cd "$ROOT_DIR"
 
 # Start backend (FastAPI) with demo data
-python -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --log-level warning &
+"$PYTHON_BIN" -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --log-level warning &
 BACKEND_PID=$!
 wait_for_url "http://localhost:${BACKEND_PORT}/health"
 
