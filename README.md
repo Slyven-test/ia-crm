@@ -172,6 +172,27 @@ Notes :
 - Le DRY RUN est activé par défaut en dev ; passez `BREVO_DRY_RUN=0` et renseignez la clé/sender pour un envoi réel.
 - Les contacts sont journalisés dans `contact_history` (statut `dry_run` en simulation).
 
+## Qualité des emails clients
+Les emails clients sont **validés strictement en entrée** (create/update), mais **tolérés en sortie** pour éviter les erreurs de sérialisation dues aux données historiques invalides.
+
+Exemples de requêtes SQL d’audit/nettoyage (à exécuter manuellement si besoin) :
+
+```sql
+-- Compter les emails vides ou uniquement des espaces
+SELECT COUNT(*) FROM clients WHERE email IS NOT NULL AND TRIM(email) = '';
+
+-- Détecter des emails manifestement invalides (regex simple)
+SELECT id, client_code, email
+FROM clients
+WHERE email IS NOT NULL
+  AND email !~* '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$';
+
+-- Mettre à NULL les emails vides
+UPDATE clients SET email = NULL WHERE email IS NOT NULL AND TRIM(email) = '';
+```
+
+Note : l’isolation multi-tenant est appliquée côté API (pas de RLS en base).
+
 ## Architecture overview (rapide)
 - **backend** : FastAPI + SQLAlchemy, migrations via Alembic (`backend/alembic.ini`, `backend/migrations`).
 - **etl** : scripts pandas multi-tenant, chargement PostgreSQL/SQLite.

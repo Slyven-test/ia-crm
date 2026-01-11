@@ -6,11 +6,11 @@ Permet de consulter la liste des clients et les détails d'un client.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import User, Client
+from ..models import User, Client, Sale, Order
 from ..routers.auth import get_current_user
 from .. import schemas
 
@@ -94,6 +94,33 @@ def update_client(
     return client
 
 
+@router.patch("/{client_code}", response_model=schemas.ClientRead)
+def patch_client(
+    client_code: str,
+    client_update: schemas.ClientUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> schemas.ClientRead:
+    """Met à jour partiellement un client existant."""
+    client = (
+        db.query(Client)
+        .filter(
+            Client.tenant_id == current_user.tenant_id,
+            Client.client_code == client_code,
+        )
+        .first()
+    )
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    update_data = client_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(client, field, value)
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    return client
+
+
 @router.delete("/{client_code}")
 def delete_client(
     client_code: str,
@@ -115,6 +142,32 @@ def delete_client(
     )
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
+    sale_exists = (
+        db.query(Sale.id)
+        .filter(
+            Sale.tenant_id == current_user.tenant_id,
+            Sale.client_code == client_code,
+        )
+        .first()
+    )
+    if sale_exists:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Le client est lié à des ventes et ne peut pas être supprimé",
+        )
+    order_exists = (
+        db.query(Order.id)
+        .filter(
+            Order.tenant_id == current_user.tenant_id,
+            Order.client_id == client.id,
+        )
+        .first()
+    )
+    if order_exists:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Le client est lié à des commandes et ne peut pas être supprimé",
+        )
     db.delete(client)
     db.commit()
     return {"message": "Client supprimé"}

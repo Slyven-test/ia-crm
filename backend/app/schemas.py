@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, TypeAdapter, field_validator
 
 
 # --- Tenant ---
@@ -100,7 +100,23 @@ class ClientUpdate(BaseModel):
 
 
 class ClientRead(ClientBase):
+    email: Optional[str] = None
     id: int
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned == "":
+                return None
+            try:
+                return TypeAdapter(EmailStr).validate_python(cleaned)
+            except Exception:
+                return None
+        return None
 
     model_config = ConfigDict(from_attributes=True)
 

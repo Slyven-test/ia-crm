@@ -86,6 +86,33 @@ def update_product(
     return product
 
 
+@router.patch("/{product_key}", response_model=schemas.ProductRead)
+def patch_product(
+    product_key: str,
+    product_update: schemas.ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> schemas.ProductRead:
+    """Met à jour partiellement un produit existant."""
+    product = (
+        db.query(Product)
+        .filter(
+            Product.tenant_id == current_user.tenant_id,
+            Product.product_key == product_key,
+        )
+        .first()
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+    update_data = product_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(product, field, value)
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
 @router.get("/{product_key}", response_model=schemas.ProductRead)
 def get_product(
     product_key: str,
