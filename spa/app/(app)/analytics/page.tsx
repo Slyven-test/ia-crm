@@ -165,7 +165,7 @@ export default function AnalyticsPage() {
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          Vue d'ensemble
+          Vue d&apos;ensemble
         </h2>
         {overviewQuery.isLoading ? (
           <div className="grid gap-4 md:grid-cols-3">

@@ -10,6 +10,7 @@ import {
   Megaphone,
   Package,
   Settings,
+  Sliders,
   Sparkles,
   Target,
   Upload,
@@ -21,9 +22,10 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Clients", href: "/customers", icon: Users },
+  { label: "Clients", href: "/clients", icon: Users },
   { label: "Produits", href: "/products", icon: Package },
   { label: "Recommandations", href: "/recommendations", icon: Sparkles },
+  { label: "Taste dimensions", href: "/taste-dimensions", icon: Sliders },
   { label: "Runs", href: "/runs", icon: Workflow },
   { label: "Segmentation", href: "/segmentation", icon: Target },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
