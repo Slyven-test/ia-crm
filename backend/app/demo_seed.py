@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from sqlalchemy.orm import Session
 
+from .database import SessionLocal
 from .models import Tenant, User, Client, Product, Sale
 from .services.auth_service import get_password_hash
 
@@ -108,3 +109,16 @@ def seed_demo_data(db: Session) -> None:
 
     db.commit()
 
+
+def main() -> None:
+    """Entrypoint for seeding demo data from the CLI."""
+    db = SessionLocal()
+    try:
+        seed_demo_data(db)
+        print("Seeded demo tenant/user.")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

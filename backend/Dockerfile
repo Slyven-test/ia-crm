@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 # Copier le code de l’application et l’ETL
 COPY backend/app ./app
+COPY backend/alembic.ini ./backend/alembic.ini
+COPY backend/migrations ./backend/migrations
 
 # Assurer la résolution des modules backend et etl
 ENV PYTHONPATH="/app:/app/etl"

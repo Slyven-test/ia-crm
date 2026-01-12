@@ -1,7 +1,7 @@
 """add owner and visibility to clients/products
 
-Revision ID: 20250920_add_owner_visibility
-Revises: 
+Revision ID: 20250920_owner_vis
+Revises: 20260112_init_schema
 Create Date: 2025-09-20 00:00:00.000000
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20250920_add_owner_visibility"
-down_revision = None
+revision = "20250920_owner_vis"
+down_revision = "20260112_init_schema"
 branch_labels = None
 depends_on = None
 

@@ -1,7 +1,7 @@
 """add client notes, taste dimensions, and custom fields
 
-Revision ID: 20250920_add_client_notes_taste_dimensions_and_custom_fields
-Revises: 20250920_add_sales_created_by_user_id
+Revision ID: 20250920_client_notes_taste
+Revises: 20250920_sales_created_by
 Create Date: 2025-09-20 00:00:00.000000
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20250920_add_client_notes_taste_dimensions_and_custom_fields"
-down_revision = "20250920_add_sales_created_by_user_id"
+revision = "20250920_client_notes_taste"
+down_revision = "20250920_sales_created_by"
 branch_labels = None
 depends_on = None
 

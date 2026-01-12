@@ -1,7 +1,7 @@
 """add created_by_user_id to sales
 
-Revision ID: 20250920_add_sales_created_by_user_id
-Revises: 20250920_add_owner_visibility
+Revision ID: 20250920_sales_created_by
+Revises: 20250920_owner_vis
 Create Date: 2025-09-20 00:00:00.000000
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20250920_add_sales_created_by_user_id"
-down_revision = "20250920_add_owner_visibility"
+revision = "20250920_sales_created_by"
+down_revision = "20250920_owner_vis"
 branch_labels = None
 depends_on = None
 

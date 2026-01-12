@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .database import Base, engine, SessionLocal
 from .demo_seed import seed_demo_data
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
                 db.close()
 
     # Configurer CORS pour permettre les appels depuis le frontend
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
     origin_env = os.getenv("CORS_ALLOW_ORIGINS") or os.getenv("ALLOWED_ORIGINS")
     allowed_origins = (origin_env or "http://localhost:3000").split(",")
     app.add_middleware(
