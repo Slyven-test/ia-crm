@@ -109,6 +109,22 @@ function formatErrorMessage(data: unknown, fallback: string): string {
   return fallback;
 }
 
+export function getApiErrorMessage(
+  error: unknown,
+  fallback = "Request failed"
+): string {
+  if (error instanceof ApiError) {
+    return formatErrorMessage(error.data, error.message || fallback);
+  }
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return fallback;
+}
+
 async function refreshToken() {
   const response = await fetch(`${API_BASE}/auth/refresh`, {
     method: "POST",

@@ -188,7 +188,7 @@ export default function AuditPage() {
       <Card>
         <CardHeader className="border-b">
           <div>
-            <CardTitle>Journal d'audit</CardTitle>
+            <CardTitle>Journal d&apos;audit</CardTitle>
             <CardDescription>
               Suivi des executions, erreurs et alertes de qualite.
             </CardDescription>

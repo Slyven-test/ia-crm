@@ -8,17 +8,29 @@ export const endpoints = {
   },
   clients: {
     list: "/clients/",
+    create: "/clients/",
     detail: (clientCode: string) => `/clients/${clientCode}`,
+    update: (clientCode: string) => `/clients/${clientCode}`,
   },
   products: {
     list: "/products/",
+    create: "/products/",
     detail: (productKey: string) => `/products/${productKey}`,
+    update: (productKey: string) => `/products/${productKey}`,
   },
   recommendations: {
     list: "/recommendations/",
     byClient: (clientCode: string) => `/recommendations/client/${clientCode}`,
     generate: "/recommendations/generate",
     approve: "/recommendations/approve",
+  },
+  recommendationsV2: {
+    list: "/recommendations/",
+    byClient: (clientCode: string) => `/clients/${clientCode}/recommendations`,
+    runByClient: (clientCode: string) =>
+      `/clients/${clientCode}/recommendations/run`,
+    update: (recommendationId: string | number) =>
+      `/recommendations/${recommendationId}`,
   },
   recoRuns: {
     list: "/reco-runs/",
@@ -31,6 +43,12 @@ export const endpoints = {
   },
   sales: {
     customerHistory: (clientCode: string) => `/sales/customer/${clientCode}`,
+    create: "/sales/",
+  },
+  tasteDimensions: {
+    list: "/taste-dimensions/",
+    create: "/taste-dimensions/",
+    update: (dimensionId: string | number) => `/taste-dimensions/${dimensionId}`,
   },
   audit: {
     latest: "/audit/latest",

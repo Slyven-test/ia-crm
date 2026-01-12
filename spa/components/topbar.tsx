@@ -41,7 +41,7 @@ export function Topbar() {
             IA-CRM Workspace
           </span>
           <span className="text-xs text-muted-foreground">
-            Vue d'ensemble et operations
+            Vue d&apos;ensemble et operations
           </span>
         </div>
       </div>

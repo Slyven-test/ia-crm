@@ -44,7 +44,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6">
         <div className="w-full max-w-lg">
           <Alert variant="destructive">
-            <AlertTitle>Erreur d'authentification</AlertTitle>
+            <AlertTitle>Erreur d&apos;authentification</AlertTitle>
             <AlertDescription>
               Impossible de verifier la session. Veuillez reessayer.
             </AlertDescription>

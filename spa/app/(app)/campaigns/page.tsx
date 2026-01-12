@@ -427,6 +427,7 @@ export default function CampaignsPage() {
 
   useEffect(() => {
     if (statsQuery.isSuccess) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatsUnavailable(false);
     }
   }, [statsQuery.isSuccess, setStatsUnavailable]);
@@ -434,6 +435,7 @@ export default function CampaignsPage() {
   useEffect(() => {
     if (!statsQuery.error) return;
     if (isUnavailableError(statsQuery.error)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatsUnavailable(true);
     }
   }, [statsQuery.error, setStatsUnavailable]);
@@ -1239,7 +1241,7 @@ export default function CampaignsPage() {
                   }}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Taille du batch pour la previsualisation et l'envoi.
+                  Taille du batch pour la previsualisation et l&apos;envoi.
                 </p>
               </div>
             </div>
