@@ -95,6 +95,15 @@ class Client(Base):
     cluster = Column(String, nullable=True)
     last_contact_date = Column(DateTime, nullable=True)
     email_opt_out = Column(Boolean, default=False)
+    phone = Column(String, nullable=True)
+    address_line1 = Column(String, nullable=True)
+    address_line2 = Column(String, nullable=True)
+    postal_code = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    tags = Column(Text, nullable=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    visibility = Column(String, default="private", index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     def __repr__(self) -> str:
@@ -152,6 +161,9 @@ class Product(Base):
     is_active = Column(Boolean, default=True)
     is_archived = Column(Boolean, default=False)
     description = Column(Text, nullable=True)
+    custom_characteristics = Column(Text, nullable=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    visibility = Column(String, default="private", index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     def __repr__(self) -> str:
@@ -168,10 +180,43 @@ class Sale(Base):
     quantity = Column(Float, nullable=True)
     amount = Column(Float, nullable=True)
     sale_date = Column(DateTime, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     def __repr__(self) -> str:
         return f"<Sale {self.document_id} - {self.product_key}>"
+
+
+class ClientNote(Base):
+    __tablename__ = "client_notes"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    client_code = Column(String, index=True)
+    title = Column(String, nullable=True)
+    body = Column(Text, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<ClientNote {self.client_code}#{self.id}>"
+
+
+class TasteDimension(Base):
+    __tablename__ = "taste_dimensions"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    key = Column(String, nullable=False, index=True)
+    label = Column(String, nullable=True)
+    weight = Column(Float, default=1.0)
+    is_active = Column(Boolean, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key", name="uq_taste_dimensions_tenant_key"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TasteDimension {self.key}@{self.tenant_id}>"
 
 
 class Recommendation(Base):

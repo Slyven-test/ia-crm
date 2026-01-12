@@ -39,6 +39,7 @@ from .routers import (
     clusters,
     aliases,
     reco_pipeline,
+    taste_dimensions,
 )
 
 
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
             clusters.router,
             aliases.router,
             reco_pipeline.router,
+            taste_dimensions.router,
         ]
         for router in routers:
             app.include_router(router, prefix=prefix, include_in_schema=include_in_schema)
@@ -173,6 +175,7 @@ def create_app() -> FastAPI:
     app.include_router(aliases.router)
     # Pipeline reco/audit/export
     app.include_router(reco_pipeline.router)
+    app.include_router(taste_dimensions.router)
 
     # Inclure les routeurs sans préfixe (compatibilité)
     _include_core_routes()

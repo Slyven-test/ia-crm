@@ -16,6 +16,30 @@ from .. import schemas
 router = APIRouter(prefix="/products", tags=["products"])
 
 
+def _accessible_products_query(db: Session, current_user: User):
+    query = db.query(Product).filter(Product.tenant_id == current_user.tenant_id)
+    if current_user.is_superuser:
+        return query
+    return query.filter(
+        or_(
+            Product.owner_user_id == current_user.id,
+            Product.visibility == "tenant",
+            Product.owner_user_id.is_(None),
+        )
+    )
+
+
+def _serialize_custom_characteristics(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @router.get("/", response_model=list[schemas.ProductRead])
 def list_products(
     q: str | None = Query(None, description="Recherche texte (clé, nom, famille)"),
@@ -66,6 +90,7 @@ def create_product(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Produit déjà existant")
     product = Product(**product_in.model_dump(exclude={"tenant_id"}))
     product.tenant_id = current_user.tenant_id
+    product.owner_user_id = current_user.id
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -84,11 +109,8 @@ def update_product(
     Les champs ``product_key`` et ``tenant_id`` ne sont pas modifiables.
     """
     product = (
-        db.query(Product)
-        .filter(
-            Product.tenant_id == current_user.tenant_id,
-            Product.product_key == product_key,
-        )
+        _accessible_products_query(db, current_user)
+        .filter(Product.product_key == product_key)
         .first()
     )
     if not product:
@@ -110,8 +132,8 @@ def get_product(
 ) -> schemas.ProductRead:
     """Retourne un produit par son product_key."""
     prod = (
-        db.query(Product)
-        .filter(Product.tenant_id == current_user.tenant_id, Product.product_key == product_key)
+        _accessible_products_query(db, current_user)
+        .filter(Product.product_key == product_key)
         .first()
     )
     if not prod:
@@ -136,8 +158,8 @@ def delete_product(
     est effectuée avant la suppression.
     """
     product = (
-        db.query(Product)
-        .filter(Product.tenant_id == current_user.tenant_id, Product.product_key == product_key)
+        _accessible_products_query(db, current_user)
+        .filter(Product.product_key == product_key)
         .first()
     )
     if not product:

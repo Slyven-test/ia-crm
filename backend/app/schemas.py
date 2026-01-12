@@ -8,9 +8,10 @@ mettre à jour les objets, et en classes de lecture (R) retournées par l’API.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
+import json
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, TypeAdapter
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, TypeAdapter, field_validator
 
 
 # --- Tenant ---
@@ -58,6 +59,14 @@ class ClientBase(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     tenant_id: int
+    visibility: Optional[Literal["private", "tenant"]] = None
+    phone: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    tags: Optional[str] = None
     # Champs calculés optionnels (exposés uniquement en lecture)
     last_purchase_date: Optional[dt.datetime] = None
     total_spent: Optional[float] = None
@@ -76,8 +85,19 @@ class ClientBase(BaseModel):
     email_opt_out: Optional[bool] = False
 
 
-class ClientCreate(ClientBase):
-    pass
+class ClientCreate(BaseModel):
+    client_code: str
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    visibility: Optional[Literal["private", "tenant"]] = None
+    tenant_id: Optional[int] = None
+    phone: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    tags: Optional[str] = None
 
 
 class ClientUpdate(BaseModel):
@@ -95,6 +115,14 @@ class ClientUpdate(BaseModel):
     budget_band: Optional[str] = None
     aroma_profile: Optional[str] = None
     cluster: Optional[str] = None
+    visibility: Optional[Literal["private", "tenant"]] = None
+    phone: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    tags: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +130,7 @@ class ClientUpdate(BaseModel):
 class ClientRead(ClientBase):
     email: Optional[str] = None
     id: int
+    owner_user_id: Optional[int] = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -148,10 +177,50 @@ class ProductBase(BaseModel):
     is_archived: Optional[bool] = False
     description: Optional[str] = None
     tenant_id: int
+    visibility: Optional[Literal["private", "tenant"]] = None
+    custom_characteristics: Optional[dict[str, Any]] = None
 
 
-class ProductCreate(ProductBase):
-    pass
+class ProductCreate(BaseModel):
+    product_key: str
+    name: str
+    family_crm: Optional[str] = None
+    sub_family: Optional[str] = None
+    cepage: Optional[str] = None
+    sucrosite_niveau: Optional[str] = None
+    price_ttc: Optional[float] = None
+    margin: Optional[float] = None
+    premium_tier: Optional[str] = None
+    price_band: Optional[str] = None
+    aroma_fruit: Optional[float] = None
+    aroma_floral: Optional[float] = None
+    aroma_spice: Optional[float] = None
+    aroma_mineral: Optional[float] = None
+    aroma_acidity: Optional[float] = None
+    aroma_body: Optional[float] = None
+    aroma_tannin: Optional[float] = None
+    global_popularity_score: Optional[float] = None
+    season_tags: Optional[str] = None
+    is_active: Optional[bool] = True
+    is_archived: Optional[bool] = False
+    description: Optional[str] = None
+    visibility: Optional[Literal["private", "tenant"]] = None
+    tenant_id: Optional[int] = None
+    custom_characteristics: Optional[dict[str, Any]] = None
+
+    @field_validator("custom_characteristics", mode="before")
+    @classmethod
+    def parse_custom_characteristics(cls, value: object) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(value, dict):
+            return value
+        return None
 
 
 class ProductUpdate(BaseModel):
@@ -182,12 +251,46 @@ class ProductUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_archived: Optional[bool] = None
     description: Optional[str] = None
+    visibility: Optional[Literal["private", "tenant"]] = None
+    custom_characteristics: Optional[dict[str, Any]] = None
+
+    @field_validator("custom_characteristics", mode="before")
+    @classmethod
+    def parse_custom_characteristics(cls, value: object) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(value, dict):
+            return value
+        return None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ProductRead(ProductBase):
     id: int
+    owner_user_id: Optional[int] = None
+    custom_characteristics: Optional[dict[str, Any]] = None
+
+    @field_validator("custom_characteristics", mode="before")
+    @classmethod
+    def parse_custom_characteristics(cls, value: object) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                return {}
+        return {}
 
     class Config:
         orm_mode = True
@@ -202,7 +305,7 @@ class SaleBase(BaseModel):
     quantity: Optional[float] = None
     amount: Optional[float] = None
     sale_date: Optional[dt.datetime] = None
-    tenant_id: int
+    tenant_id: Optional[int] = None
 
 
 class SaleCreate(SaleBase):
@@ -210,6 +313,76 @@ class SaleCreate(SaleBase):
 
 
 class SaleRead(SaleBase):
+    id: int
+    tenant_id: int
+    created_by_user_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClientKPIs(BaseModel):
+    last_purchase_date: Optional[dt.datetime] = None
+    total_spent: Optional[float] = None
+    total_orders: Optional[int] = None
+    average_order_value: Optional[float] = None
+    recency: Optional[float] = None
+    frequency: Optional[float] = None
+    monetary: Optional[float] = None
+    rfm_score: Optional[int] = None
+    rfm_segment: Optional[str] = None
+
+
+class ClientProfile(BaseModel):
+    client: ClientRead
+    latest_sales: list[SaleRead]
+    kpis: ClientKPIs
+    notes: list["ClientNoteRead"]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClientNoteBase(BaseModel):
+    title: Optional[str] = None
+    body: str
+
+
+class ClientNoteCreate(ClientNoteBase):
+    pass
+
+
+class ClientNoteUpdate(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+
+
+class ClientNoteRead(ClientNoteBase):
+    id: int
+    client_code: str
+    created_by_user_id: Optional[int] = None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TasteDimensionBase(BaseModel):
+    key: str
+    label: Optional[str] = None
+    weight: float = 1.0
+    is_active: bool = True
+
+
+class TasteDimensionCreate(TasteDimensionBase):
+    pass
+
+
+class TasteDimensionUpdate(BaseModel):
+    label: Optional[str] = None
+    weight: Optional[float] = None
+    is_active: Optional[bool] = None
+
+
+class TasteDimensionRead(TasteDimensionBase):
     id: int
 
     model_config = ConfigDict(from_attributes=True)
@@ -535,6 +708,30 @@ class RecommendationRead(RecommendationBase):
     created_at: dt.datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RecommendationExplain(BaseModel):
+    taste_score: float
+    margin_boost: float
+    popularity_boost: float
+    seasonality_boost: float
+    scenario_adjustment: float
+
+
+class RecommendationComputed(BaseModel):
+    product_key: str
+    score: float
+    scenario: Optional[str] = None
+    explain: RecommendationExplain
+
+
+class RecommendationUpdate(BaseModel):
+    is_approved: bool
+
+
+class RecommendationRunRequest(BaseModel):
+    scenario: Literal["cross-sell", "rebuy", "winback"]
+    limit: int = 20
 
 
 # --- Campaign ---
