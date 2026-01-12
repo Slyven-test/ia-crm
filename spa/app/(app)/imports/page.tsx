@@ -5,7 +5,6 @@ import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/empty-state";
-import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -620,7 +619,7 @@ function ImportCard({
           ) : (
             <EmptyState
               title="Aucun import lance"
-              description="Chargez un fichier pour lancer l'import."
+              description="Chargez un fichier pour lancer l&apos;import."
             />
           )}
         </div>
@@ -637,7 +636,7 @@ function ImportCard({
               </span>
             </p>
             <p>
-              Type d'upload:{" "}
+              Type d&apos;upload:{" "}
               <span className="font-medium text-foreground">
                 {endpointInfo.uploadType === "json"
                   ? "json"
