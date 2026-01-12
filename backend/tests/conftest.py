@@ -1,5 +1,4 @@
 import pytest
-from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -23,36 +22,16 @@ def app():
 
     db = TestingSessionLocal()
     tenant = models.Tenant(id=1, name="Tenant 1")
-    users = [
-        models.User(
-            id=1,
-            username="test-user-1",
-            email="test1@example.com",
-            hashed_password="not-used",
-            is_active=True,
-            is_superuser=False,
-            tenant_id=1,
-        ),
-        models.User(
-            id=2,
-            username="test-user-2",
-            email="test2@example.com",
-            hashed_password="not-used",
-            is_active=True,
-            is_superuser=False,
-            tenant_id=1,
-        ),
-        models.User(
-            id=99,
-            username="test-admin",
-            email="admin@example.com",
-            hashed_password="not-used",
-            is_active=True,
-            is_superuser=True,
-            tenant_id=1,
-        ),
-    ]
-    db.add_all([tenant, *users])
+    user = models.User(
+        id=1,
+        username="test-user",
+        email="test@example.com",
+        hashed_password="not-used",
+        is_active=True,
+        is_superuser=False,
+        tenant_id=1,
+    )
+    db.add_all([tenant, user])
     db.commit()
     db.close()
 
@@ -63,11 +42,10 @@ def app():
         finally:
             db.close()
 
-    def override_get_current_user(request: Request):
-        user_id = int(request.headers.get("X-Test-User-Id", "1"))
+    def override_get_current_user():
         db = TestingSessionLocal()
         try:
-            return db.query(models.User).filter(models.User.id == user_id).first()
+            return db.query(models.User).filter(models.User.id == 1).first()
         finally:
             db.close()
 
@@ -84,3 +62,13 @@ def app():
 def client(app):
     return TestClient(app)
 
+
+@pytest.fixture()
+def db_session(app):
+    SessionLocal = app.state.session_local
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    finally:
+        db.close()

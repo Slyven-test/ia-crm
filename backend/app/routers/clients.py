@@ -6,7 +6,7 @@ Permet de consulter la liste des clients et les détails d'un client.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -56,7 +56,7 @@ def list_clients(
     current_user: User = Depends(get_current_user),
 ) -> list[schemas.ClientRead]:
     """Retourne tous les clients du tenant courant."""
-    query = _accessible_clients_query(db, current_user)
+    query = db.query(Client).filter(Client.tenant_id == current_user.tenant_id)
     if q:
         search = f"%{q}%"
         query = query.filter(
@@ -95,7 +95,6 @@ def create_client(
     )
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Client déjà existant")
-    visibility = "tenant" if client_in.visibility == "tenant" else "private"
     client = Client(
         client_code=client_in.client_code,
         name=client_in.name,
@@ -307,149 +306,4 @@ def update_client_note(
     )
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
-    note = (
-        db.query(ClientNote)
-        .filter(
-            ClientNote.tenant_id == current_user.tenant_id,
-            ClientNote.client_code == client_code,
-            ClientNote.id == note_id,
-        )
-        .first()
-    )
-    if not note:
-        raise HTTPException(status_code=404, detail="Note introuvable")
-    update_data = note_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(note, field, value)
-    db.add(note)
-    db.commit()
-    db.refresh(note)
-    return note
-
-
-@router.delete("/{client_code}/notes/{note_id}", status_code=204)
-def delete_client_note(
-    client_code: str,
-    note_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> Response:
-    client = (
-        _accessible_clients_query(db, current_user)
-        .filter(Client.client_code == client_code)
-        .first()
-    )
-    if not client:
-        raise HTTPException(status_code=404, detail="Client introuvable")
-    note = (
-        db.query(ClientNote)
-        .filter(
-            ClientNote.tenant_id == current_user.tenant_id,
-            ClientNote.client_code == client_code,
-            ClientNote.id == note_id,
-        )
-        .first()
-    )
-    if not note:
-        raise HTTPException(status_code=404, detail="Note introuvable")
-    db.delete(note)
-    db.commit()
-    return Response(status_code=204)
-
-
-@router.get("/{client_code}/taste-scores")
-def get_client_taste_scores(
-    client_code: str,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[dict[str, float | str]]:
-    client = (
-        _accessible_clients_query(db, current_user)
-        .filter(Client.client_code == client_code)
-        .first()
-    )
-    if not client:
-        raise HTTPException(status_code=404, detail="Client introuvable")
-
-    dimensions = (
-        db.query(TasteDimension)
-        .filter(TasteDimension.tenant_id == current_user.tenant_id)
-        .order_by(TasteDimension.id.asc())
-        .all()
-    )
-    products = _accessible_products_query(db, current_user).order_by(Product.id.asc()).all()
-    client_vec = client_vector(client)
-    scores = []
-    for product in products:
-        score = compute_weighted_similarity(client_vec, product_vector(product), dimensions)
-        scores.append({"product_key": product.product_key, "score": score})
-    scores.sort(key=lambda item: (-item["score"], item["product_key"]))
-    return scores[offset : offset + limit]
-
-
-@router.post(
-    "/{client_code}/recommendations/run",
-    response_model=list[schemas.RecommendationComputed],
-)
-def run_client_recommendations(
-    client_code: str,
-    request: schemas.RecommendationRunRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[schemas.RecommendationComputed]:
-    try:
-        recos = compute_recommendations(
-            db,
-            current_user=current_user,
-            client_code=client_code,
-            scenario=request.scenario,
-            limit=request.limit,
-        )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Client introuvable")
-    persist_recommendations(
-        db,
-        tenant_id=current_user.tenant_id,
-        client_code=client_code,
-        scenario=request.scenario,
-        recos=recos,
-    )
-    return recos
-
-
-@router.get("/{client_code}/recommendations", response_model=list[schemas.RecommendationRead])
-def list_client_recommendations(
-    client_code: str,
-    scenario: str | None = None,
-    approved_only: bool = False,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[schemas.RecommendationRead]:
-    client = (
-        _accessible_clients_query(db, current_user)
-        .filter(Client.client_code == client_code)
-        .first()
-    )
-    if not client:
-        raise HTTPException(status_code=404, detail="Client introuvable")
-    query = (
-        db.query(Recommendation)
-        .filter(
-            Recommendation.tenant_id == current_user.tenant_id,
-            Recommendation.client_code == client_code,
-        )
-    )
-    if scenario:
-        query = query.filter(Recommendation.scenario == scenario)
-    if approved_only:
-        query = query.filter(Recommendation.is_approved.is_(True))
-    return (
-        query.order_by(Recommendation.score.desc(), Recommendation.product_key.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    return client

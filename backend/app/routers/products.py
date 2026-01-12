@@ -4,8 +4,6 @@ Routes d'API pour la gestion des produits.
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -51,7 +49,7 @@ def list_products(
     current_user: User = Depends(get_current_user),
 ) -> list[schemas.ProductRead]:
     """Retourne les produits pour le tenant courant."""
-    query = _accessible_products_query(db, current_user)
+    query = db.query(Product).filter(Product.tenant_id == current_user.tenant_id)
     if q:
         search = f"%{q}%"
         query = query.filter(
@@ -90,14 +88,7 @@ def create_product(
     )
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Produit déjà existant")
-    data = product_in.model_dump(exclude={"tenant_id"})
-    visibility = "tenant" if data.get("visibility") == "tenant" else "private"
-    data["visibility"] = visibility
-    if "custom_characteristics" in data:
-        data["custom_characteristics"] = _serialize_custom_characteristics(
-            data.get("custom_characteristics")
-        )
-    product = Product(**data)
+    product = Product(**product_in.model_dump(exclude={"tenant_id"}))
     product.tenant_id = current_user.tenant_id
     product.owner_user_id = current_user.id
     db.add(product)
@@ -125,10 +116,6 @@ def update_product(
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
     update_data = product_update.model_dump(exclude_unset=True)
-    if "custom_characteristics" in update_data:
-        update_data["custom_characteristics"] = _serialize_custom_characteristics(
-            update_data.get("custom_characteristics")
-        )
     for field, value in update_data.items():
         setattr(product, field, value)
     db.add(product)
